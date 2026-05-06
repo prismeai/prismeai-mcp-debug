@@ -41,7 +41,9 @@ description: '<One-line description for SEO>'
   </Tab>
 
   <Tab title="Usage as MCP">
-    <intro + Legacy MCP Install Steps>
+    <intro>
+    ## Plug into an Agent Creator capability  — Steps for the new flow
+    ## Legacy MCP Install (Advanced > Tools)  — kept for older agents
     ## Output Formats
     ## Available Tools        — one table per resource category
     ## Tool Details           — deep-dive on 4-6 flagship tools
@@ -52,7 +54,7 @@ description: '<One-line description for SEO>'
 ## External Resources         — API docs + Tool Agents cards
 ```
 
-Read `./templates/reference-example.mdx` (bundled with this skill) once before writing anything. It's a verbatim copy of the `Gryzzly` connector page — the canonical reference. Anything inconsistent with it is a bug.
+Read `./templates/reference-example.mdx` (bundled with this skill) once before writing anything. It's a verbatim snapshot of the `Gryzzly` connector page and the canonical reference for tone, table layout, and section ordering — **except** for the `Usage as MCP` tab, which now opens with the *Plug into an Agent Creator capability* steps before falling back to the legacy *Advanced > Tools* flow. Always render that Agent Creator section first; use `./templates/connector.mdx` as the authoritative skeleton when the reference page diverges. **Do not append "(2026, …)" or any year/recency qualifier to the section heading** — the docs always describe the current product, so dating the new flow is redundant.
 
 ---
 
