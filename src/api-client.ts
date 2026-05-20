@@ -184,6 +184,37 @@ export interface DetailedAppInstance extends AppInstance {
     blocks?: any[];
 }
 
+export interface PrismeFile {
+    id?: string;
+    name: string;
+    url: string;
+    mimetype: string;
+    size: number;
+    workspaceId: string;
+    path: string;
+    expiresAt?: string;
+    expiresAfter?: number;
+    metadata?: Record<string, any>;
+    public?: boolean;
+    shareToken?: string;
+}
+
+export interface UploadFileOptions {
+    fileName?: string;
+    contentType?: string;
+    expiresAfter?: string | number;
+    public?: boolean;
+    shareToken?: boolean;
+    metadata?: Record<string, any>;
+}
+
+export interface ListFilesParams {
+    page?: number;
+    limit?: number;
+    query?: Record<string, any>;
+    sort?: string;
+}
+
 export class PrismeApiClient {
     private client: AxiosInstance;
     private workspaceId: string;
@@ -522,6 +553,100 @@ export class PrismeApiClient {
                 maxBodyLength: Infinity,
                 maxContentLength: Infinity,
             }
+        );
+        return response.data;
+    }
+
+    // File CRUD operations
+    async uploadFile(
+        fileContent: Buffer,
+        options: UploadFileOptions,
+        workspaceId?: string,
+        apiUrl?: string,
+        environment?: string
+    ): Promise<PrismeFile[]> {
+        const wsId = workspaceId || this.workspaceId;
+        const effectiveApiKey = this.getApiKeyForEnvironment(environment);
+        const client = this.getClient(apiUrl, environment);
+        const formData = new FormData();
+        formData.append('file', fileContent, {
+            filename: options.fileName || 'upload',
+            contentType: options.contentType || 'application/octet-stream',
+        });
+        if (options.expiresAfter !== undefined) {
+            formData.append('expiresAfter', String(options.expiresAfter));
+        }
+        if (options.public !== undefined) {
+            formData.append('public', String(options.public));
+        }
+        if (options.shareToken) {
+            formData.append('shareToken', 'true');
+        }
+        if (options.metadata && Object.keys(options.metadata).length > 0) {
+            formData.append('metadata', JSON.stringify(options.metadata));
+        }
+
+        const response = await client.post(
+            `/workspaces/${wsId}/files`,
+            formData,
+            {
+                headers: {
+                    ...formData.getHeaders(),
+                    Authorization: `Bearer ${effectiveApiKey}`,
+                },
+                maxBodyLength: Infinity,
+                maxContentLength: Infinity,
+            }
+        );
+        return response.data;
+    }
+
+    async listFiles(
+        params?: ListFilesParams,
+        workspaceId?: string,
+        apiUrl?: string,
+        environment?: string
+    ): Promise<PrismeFile[]> {
+        const wsId = workspaceId || this.workspaceId;
+        const client = this.getClient(apiUrl, environment);
+        const queryParams: Record<string, any> = {};
+        if (params?.page !== undefined) queryParams.page = params.page;
+        if (params?.limit !== undefined) queryParams.limit = params.limit;
+        if (params?.sort) queryParams.sort = params.sort;
+        if (params?.query && Object.keys(params.query).length > 0) {
+            queryParams.query = JSON.stringify(params.query);
+        }
+        const response = await client.get(
+            `/workspaces/${wsId}/files`,
+            { params: queryParams }
+        );
+        return response.data;
+    }
+
+    async getFile(
+        fileId: string,
+        workspaceId?: string,
+        apiUrl?: string,
+        environment?: string
+    ): Promise<PrismeFile> {
+        const wsId = workspaceId || this.workspaceId;
+        const client = this.getClient(apiUrl, environment);
+        const response = await client.get(
+            `/workspaces/${wsId}/files/${encodeURIComponent(fileId)}`
+        );
+        return response.data;
+    }
+
+    async deleteFile(
+        fileId: string,
+        workspaceId?: string,
+        apiUrl?: string,
+        environment?: string
+    ): Promise<{ id: string }> {
+        const wsId = workspaceId || this.workspaceId;
+        const client = this.getClient(apiUrl, environment);
+        const response = await client.delete(
+            `/workspaces/${wsId}/files/${encodeURIComponent(fileId)}`
         );
         return response.data;
     }

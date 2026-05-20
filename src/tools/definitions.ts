@@ -1274,6 +1274,184 @@ Use this to cancel a report, edit its message, or change its type.`,
       destructiveHint: true,
     },
   },
+  // File management tools
+  {
+    name: "upload_file",
+    description:
+      "Upload a file to the Prisme.ai workspace's file storage. Returns the uploaded File object(s) with `url`, `id`, `name`, `mimetype`, `size`. The file source can be provided in one of three ways: `path` (local filesystem), `url` (remote URL fetched by the MCP), or `dataUri` (data:mime;base64,... string). Exactly one of these must be set.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Local filesystem path to the file to upload. Mutually exclusive with `url` and `dataUri`.",
+        },
+        url: {
+          type: "string",
+          description:
+            "Remote URL to fetch and re-upload to Prisme. Mutually exclusive with `path` and `dataUri`.",
+        },
+        dataUri: {
+          type: "string",
+          description:
+            "Data URI string (e.g. `data:image/png;base64,iVBORw0...`). Mutually exclusive with `path` and `url`.",
+        },
+        fileName: {
+          type: "string",
+          description:
+            "Override the file name stored on Prisme. Defaults to the basename of `path`/`url`, or `upload` for dataUri.",
+        },
+        contentType: {
+          type: "string",
+          description:
+            "Override the MIME type. Defaults to value detected from extension/dataUri, or `application/octet-stream`.",
+        },
+        expiresAfter: {
+          type: "number",
+          description:
+            "Best-effort expiration delay in seconds. The file will be deleted on the next API restart after this delay.",
+        },
+        public: {
+          type: "boolean",
+          description:
+            "Set to true to grant public-read ACL. Default is true on the API side.",
+        },
+        shareToken: {
+          type: "boolean",
+          description:
+            "If true, the response includes a `shareToken` that can be appended as `?token=...` to bypass auth.",
+        },
+        metadata: {
+          type: "object",
+          additionalProperties: true,
+          description: "Arbitrary metadata to attach to the file.",
+        },
+        workspaceName: {
+          type: "string",
+          description:
+            "Workspace name that resolves to ID via PRISME_WORKSPACES or PRISME_ENVIRONMENTS mapping",
+        },
+        environment: {
+          type: "string",
+          description:
+            "Optional environment name (from PRISME_ENVIRONMENTS) to use specific API URL and workspace",
+        },
+        workspaceId: {
+          type: "string",
+          description:
+            "Alternative: direct workspace ID (use workspaceName instead when possible)",
+        },
+      },
+      required: ["workspaceName"],
+    },
+  },
+  {
+    name: "list_files",
+    description:
+      "List files in the Prisme.ai workspace. Supports pagination, sorting and Elasticsearch-style filtering via the `query` parameter.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        page: {
+          type: "number",
+          description: "Page number (1-based).",
+        },
+        limit: {
+          type: "number",
+          description: "Page size.",
+        },
+        query: {
+          type: "object",
+          additionalProperties: true,
+          description:
+            "Optional filter object serialized as query string by the API (e.g. `{ name: 'invoice.pdf' }`).",
+        },
+        sort: {
+          type: "string",
+          description: "Sort field, prefix with `-` for descending (e.g. `-createdAt`).",
+        },
+        workspaceName: {
+          type: "string",
+          description:
+            "Workspace name that resolves to ID via PRISME_WORKSPACES or PRISME_ENVIRONMENTS mapping",
+        },
+        environment: {
+          type: "string",
+          description:
+            "Optional environment name (from PRISME_ENVIRONMENTS) to use specific API URL and workspace",
+        },
+        workspaceId: {
+          type: "string",
+          description:
+            "Alternative: direct workspace ID (use workspaceName instead when possible)",
+        },
+      },
+      required: ["workspaceName"],
+    },
+  },
+  {
+    name: "get_file",
+    description:
+      "Get metadata for a single file by id. Returns the File object including `url`, `name`, `mimetype`, `size`, `metadata`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: {
+          type: "string",
+          description: "File id (as returned by upload_file or list_files).",
+        },
+        workspaceName: {
+          type: "string",
+          description:
+            "Workspace name that resolves to ID via PRISME_WORKSPACES or PRISME_ENVIRONMENTS mapping",
+        },
+        environment: {
+          type: "string",
+          description:
+            "Optional environment name (from PRISME_ENVIRONMENTS) to use specific API URL and workspace",
+        },
+        workspaceId: {
+          type: "string",
+          description:
+            "Alternative: direct workspace ID (use workspaceName instead when possible)",
+        },
+      },
+      required: ["fileId", "workspaceName"],
+    },
+  },
+  {
+    name: "delete_file",
+    description: "Delete a file from the Prisme.ai workspace storage by id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: {
+          type: "string",
+          description: "File id to delete.",
+        },
+        workspaceName: {
+          type: "string",
+          description:
+            "Workspace name that resolves to ID via PRISME_WORKSPACES or PRISME_ENVIRONMENTS mapping",
+        },
+        environment: {
+          type: "string",
+          description:
+            "Optional environment name (from PRISME_ENVIRONMENTS) to use specific API URL and workspace",
+        },
+        workspaceId: {
+          type: "string",
+          description:
+            "Alternative: direct workspace ID (use workspaceName instead when possible)",
+        },
+      },
+      required: ["fileId", "workspaceName"],
+    },
+    annotations: {
+      destructiveHint: true,
+    },
+  },
   // AI Knowledge tools
   {
     name: "ai_knowledge_query",

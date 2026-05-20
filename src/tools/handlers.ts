@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { fileURLToPath } from "url";
-import { basename, dirname, join, resolve } from "path";
+import { basename, dirname, join, resolve, extname } from "path";
 import AdmZip from "adm-zip";
+import axios from "axios";
 import yaml from "js-yaml";
 import { PrismeApiClient, AIKnowledgeQueryParams, AIKnowledgeCompletionParams, AIKnowledgeDocumentParams, AIKnowledgeProjectParams, AIKnowledgeAuth, AppInstance } from "../api-client.js";
 import { resolveWorkspaceAndEnvironment, environmentsConfig, PRISME_API_BASE_URL } from "../config.js";
@@ -89,6 +90,40 @@ function getWorkspaceIndexLabels(workspaceDir: string): { indexPath?: string; la
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+const EXTENSION_MIME_MAP: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".csv": "text/csv",
+  ".json": "application/json",
+  ".yaml": "application/yaml",
+  ".yml": "application/yaml",
+  ".html": "text/html",
+  ".htm": "text/html",
+  ".xml": "application/xml",
+  ".zip": "application/zip",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".mp3": "audio/mpeg",
+  ".mp4": "video/mp4",
+  ".wav": "audio/wav",
+};
+
+function guessContentType(filenameOrPath: string): string {
+  const ext = extname(filenameOrPath).toLowerCase();
+  return EXTENSION_MIME_MAP[ext] || "application/octet-stream";
+}
 
 export async function handleToolCall(
   name: string,
@@ -1355,6 +1390,228 @@ export async function handleToolCall(
           },
         ],
         ...(hasErrors && { isError: true }),
+      };
+    }
+
+    // File management tools
+    case "upload_file": {
+      enforceReadonlyMode("upload_file");
+      const {
+        path: filePath,
+        url: fileUrl,
+        dataUri,
+        fileName,
+        contentType,
+        expiresAfter,
+        public: isPublic,
+        shareToken,
+        metadata,
+        workspaceId,
+        workspaceName,
+        environment,
+      } = args as {
+        path?: string;
+        url?: string;
+        dataUri?: string;
+        fileName?: string;
+        contentType?: string;
+        expiresAfter?: number;
+        public?: boolean;
+        shareToken?: boolean;
+        metadata?: Record<string, any>;
+        workspaceId?: string;
+        workspaceName?: string;
+        environment?: string;
+      };
+
+      const sources = [filePath, fileUrl, dataUri].filter(
+        (v) => v !== undefined && v !== null && v !== ""
+      );
+      if (sources.length !== 1) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Error: exactly one of `path`, `url`, or `dataUri` must be provided.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const resolved = resolveWorkspaceAndEnvironment({
+        workspaceId,
+        workspaceName,
+        environment,
+      });
+
+      let buffer: Buffer;
+      let resolvedFileName = fileName;
+      let resolvedContentType = contentType;
+
+      if (filePath) {
+        const absPath = resolve(filePath);
+        if (!existsSync(absPath)) {
+          return {
+            content: [
+              { type: "text", text: `Error: File not found: ${absPath}` },
+            ],
+            isError: true,
+          };
+        }
+        buffer = readFileSync(absPath);
+        if (!resolvedFileName) resolvedFileName = basename(absPath);
+        if (!resolvedContentType) resolvedContentType = guessContentType(absPath);
+      } else if (fileUrl) {
+        const downloaded = await axios.get(fileUrl, {
+          responseType: "arraybuffer",
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        });
+        buffer = Buffer.from(downloaded.data);
+        if (!resolvedFileName) {
+          try {
+            const parsedName = basename(new URL(fileUrl).pathname);
+            resolvedFileName = parsedName || "download";
+          } catch {
+            resolvedFileName = "download";
+          }
+        }
+        if (!resolvedContentType) {
+          const headerType = downloaded.headers?.["content-type"];
+          if (typeof headerType === "string") {
+            resolvedContentType = headerType.split(";")[0].trim();
+          } else {
+            resolvedContentType = guessContentType(resolvedFileName);
+          }
+        }
+      } else {
+        const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(dataUri!);
+        if (!match) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Error: invalid dataUri (expected `data:[<mime>][;base64],<payload>`).",
+              },
+            ],
+            isError: true,
+          };
+        }
+        const [, mime, base64Flag, payload] = match;
+        buffer = base64Flag
+          ? Buffer.from(payload, "base64")
+          : Buffer.from(decodeURIComponent(payload), "utf-8");
+        if (!resolvedContentType) resolvedContentType = mime || "application/octet-stream";
+        if (!resolvedFileName) resolvedFileName = "upload";
+      }
+
+      const result = await apiClient.uploadFile(
+        buffer,
+        {
+          fileName: resolvedFileName,
+          contentType: resolvedContentType,
+          expiresAfter,
+          public: isPublic,
+          shareToken,
+          metadata,
+        },
+        resolved.workspaceId,
+        resolved.apiUrl,
+        resolved.environment
+      );
+
+      return {
+        content: [
+          { type: "text", text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    }
+
+    case "list_files": {
+      const {
+        page,
+        limit,
+        query,
+        sort,
+        workspaceId,
+        workspaceName,
+        environment,
+      } = args as {
+        page?: number;
+        limit?: number;
+        query?: Record<string, any>;
+        sort?: string;
+        workspaceId?: string;
+        workspaceName?: string;
+        environment?: string;
+      };
+      const resolved = resolveWorkspaceAndEnvironment({
+        workspaceId,
+        workspaceName,
+        environment,
+      });
+      const result = await apiClient.listFiles(
+        { page, limit, query, sort },
+        resolved.workspaceId,
+        resolved.apiUrl,
+        resolved.environment
+      );
+      return {
+        content: [
+          { type: "text", text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    }
+
+    case "get_file": {
+      const { fileId, workspaceId, workspaceName, environment } = args as {
+        fileId: string;
+        workspaceId?: string;
+        workspaceName?: string;
+        environment?: string;
+      };
+      const resolved = resolveWorkspaceAndEnvironment({
+        workspaceId,
+        workspaceName,
+        environment,
+      });
+      const result = await apiClient.getFile(
+        fileId,
+        resolved.workspaceId,
+        resolved.apiUrl,
+        resolved.environment
+      );
+      return {
+        content: [
+          { type: "text", text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    }
+
+    case "delete_file": {
+      enforceReadonlyMode("delete_file");
+      const { fileId, workspaceId, workspaceName, environment } = args as {
+        fileId: string;
+        workspaceId?: string;
+        workspaceName?: string;
+        environment?: string;
+      };
+      const resolved = resolveWorkspaceAndEnvironment({
+        workspaceId,
+        workspaceName,
+        environment,
+      });
+      const result = await apiClient.deleteFile(
+        fileId,
+        resolved.workspaceId,
+        resolved.apiUrl,
+        resolved.environment
+      );
+      return {
+        content: [
+          { type: "text", text: JSON.stringify(result, null, 2) },
+        ],
       };
     }
 
