@@ -85,7 +85,7 @@ Read `<workspace>/index.yml` and collect:
 - `name` → human-readable service name (e.g. `GitLab`, `DataGalaxy`, `Gryzzly`)
 - `slug` → kebab-case, used as the MDX filename + URL path
 - `description` → short description (we'll rewrite the first sentence to match the doc tone)
-- `photo` → logo URL (used as reference, not in the MDX)
+- **`photo` → logo URL** (used in Phase 4.5 to copy the asset into the docs repo — NOT hotlinked into the MDX). Typically points at `uploads.prisme.ai` or `api.<env>.prisme.ai/v2/files/...`. If empty, the overview card falls back to a Font Awesome icon (skill asks the user).
 - `config.schema` → build the Configuration table
   - Fields flagged `readOnly: true` go in the table as "Auto-populated on install"
   - Fields flagged `secret: true` mention "stored as a workspace secret"
@@ -127,6 +127,20 @@ The user can override by saying "merge X and Y" or "split X into A + B".
 1. Read `./templates/connector.mdx` (in this skill folder). It uses `<<PLACEHOLDER>>` syntax.
 2. Substitute the static placeholders:
    - `<<SERVICE_NAME>>`, `<<SERVICE_SLUG>>`, `<<BASE_URL>>`, `<<API_DOCS_URL>>` (ask if not in `index.yml`), `<<ONE_LINE_DESCRIPTION>>`, `<<INTRO_PARAGRAPH>>`.
+   - `<<HEADER_ICON>>` — **always render the service brand as a drop-cap "lettrine"** at the very top of the page body so the connector page is visually anchored to its service. When Phase 4.5 produced an `iconPath`, substitute exactly this JSX (no other variant; the float + margins are what make the intro paragraph wrap around the icon, which is the desired "lettrine" effect):
+
+     ```mdx
+     <img
+       src="<<iconPath from Phase 4.5>>"
+       alt="<<SERVICE_NAME>>"
+       width="96"
+       height="96"
+       noZoom
+       style={{ float: "left", marginRight: "1.25rem", marginBottom: "0.5rem" }}
+     />
+     ```
+
+     When Phase 4.5 fell back to `iconFallback` (no asset), substitute the empty string — the page renders without a lettrine, and the Font Awesome glyph from the overview card carries the brand. Do NOT inline `<Icon icon="..." />` from Mintlify here: the lettrine is meant as a *visual brand mark*, not a hint glyph. NEVER use a hotlinked URL in the `src=` (same rule as Phase 5.1).
 3. **Auto-generate** the dynamic sections:
    - **Feature cards** (`<<FEATURE_CARDS>>`) — 3 cards. Infer from the top categories; icon is a Mintlify Font Awesome name (e.g. `book`, `diagram-project`, `users`, `clock`, `plug`). Ask the user to review before locking.
    - **Configuration table** (`<<CONFIG_TABLE>>`) — rendered from `config.schema` non-readOnly fields + the two standard readOnly `MCP Endpoint` / `MCP API Key` rows. OAuth fields get their own section below the main table when present.
@@ -141,6 +155,32 @@ The user can override by saying "merge X and Y" or "split X into A + B".
 
 Write to `<docs-repo>/apps-store/marketplace/connectors/<slug>.mdx`. **Never** overwrite an existing file silently — if it exists, `AskUserQuestion`: overwrite / merge / abort.
 
+### Phase 4.5 — Copy the service icon into the docs assets
+
+**Goal**: have a local copy of the service logo so the overview card uses the real brand icon instead of a generic Font Awesome glyph. **Do NOT hotlink** `uploads.prisme.ai` / `api.<env>.prisme.ai` URLs in the MDX — those are environment-specific, can rotate, and bypass the docs CDN. The asset must live in the docs repo.
+
+Destination convention: **`<docs-repo>/images/connectors/<slug>.<ext>`** (kebab slug + original extension). Mintlify serves the `images/` folder at root, so the icon prop becomes `/images/connectors/<slug>.<ext>`.
+
+Resolution order — first hit wins:
+
+1. **Local file already in the workspace folder**. Glob `<workspace>/logo.{svg,png,jpg,jpeg,webp,ico}` and `<workspace>/icon.{svg,png,jpg,jpeg,webp,ico}`. If found, `cp` it to the destination preserving the extension. This is fast and never depends on network state.
+2. **Download from `photo:` URL** captured in Phase 2. Use `curl -sSL -D /tmp/headers "<photo>" -o /tmp/icon.bin`, then derive the extension from the `Content-Type` header (`image/png` → `.png`, `image/svg+xml` → `.svg`, `image/jpeg` → `.jpg`, `image/webp` → `.webp`, `image/x-icon` → `.ico`). If the Content-Type is missing or non-image, fall back to the URL's path suffix. Move the binary into place.
+3. **Neither available** → ask the user via `AskUserQuestion` whether to (a) provide a path to a local image, (b) keep a Font Awesome icon name as before (fallback), or (c) skip the icon entirely.
+
+Pre-write checks:
+
+- Create `<docs-repo>/images/connectors/` if it does not exist (`mkdir -p`).
+- If the destination file already exists, `AskUserQuestion`: overwrite / keep existing / abort. Don't overwrite silently — a tenant may have curated a hand-made SVG.
+- For SVG downloads, sanity-check the first bytes start with `<svg` or `<?xml` before saving; if it looks like an HTML 403 page, abort with a clear message.
+- Strip any color profiles or excessive metadata only if the user explicitly asks — by default keep the asset byte-for-byte (auditability).
+
+Output to capture for Phase 5.1:
+
+- `iconPath` → the relative path Mintlify will resolve (e.g. `/images/connectors/google-mail.png`). Always starts with a single leading `/`, NO repo prefix, NO file system absolute path.
+- `iconFallback` → null when an asset was copied; otherwise the Font Awesome name confirmed with the user in step 3.
+
+Report the absolute destination path to the user once the file is in place: `Copied <source> → <docs-repo>/images/connectors/<slug>.<ext> (N bytes)`.
+
 ### Phase 5 — Wire the new page into navigation
 
 **Goal**: make the page discoverable. Two files to touch, both under `<docs-repo>/`.
@@ -154,7 +194,7 @@ Write to `<docs-repo>/apps-store/marketplace/connectors/<slug>.mdx`. **Never** o
      <<CARD_SUMMARY>>
    </Card>
    ```
-   - `<<ICON>>` — pick a concise Font Awesome name that fits (e.g. `ticket` for ticketing, `clock` for time tracking, `book` for catalogs, `folder-open` for files, `envelope` for email). Ask the user to confirm.
+   - `<<ICON>>` — **prefer the local asset path produced by Phase 4.5** (e.g. `/images/connectors/google-mail.png`). Mintlify treats any `icon` value that isn't a known Font Awesome name as an image URL and renders it as `<img>`, so the service brand icon appears on the card instead of a generic glyph. **Never** put a hotlinked external URL here — Phase 4.5 already downloaded the file into the docs repo. Only fall back to a Font Awesome name (e.g. `ticket`, `clock`, `book`, `folder-open`, `envelope`) when Phase 4.5 explicitly bailed (no `photo:`, no local logo, user declined to provide one). Confirm the final value with the user before locking.
    - `<<CARD_SUMMARY>>` — one sentence derived from the page's intro paragraph, max ~140 chars.
 3. Insert it in the existing `<CardGroup cols={2}>` under `## Available Connectors` at the right **alphabetical** slot. Don't add a new `<CardGroup>` — the existing one is authoritative.
 4. Use the `Edit` tool with a narrow anchor that's unambiguous (match on an existing adjacent `<Card ...` line), not a full-file rewrite.
@@ -196,7 +236,7 @@ The Mintlify sidebar is driven by `<docs-repo>/docs.json`. The connector pages l
 ### Phase 6 — Report
 
 Print to the user:
-- Paths **created** (the new `.mdx` page)
+- Paths **created** (the new `.mdx` page **and** the icon asset under `images/connectors/<slug>.<ext>` when Phase 4.5 produced one — give the byte size next to it so the user spots an accidentally-empty file)
 - Paths **modified** (`overview.mdx`, `docs.json`)
 - A deep-link preview URL (`https://docs.prisme.ai/apps-store/marketplace/connectors/<slug>` if the repo publishes to that domain — otherwise just the file path)
 - Any sections flagged for human review (`<!-- REVIEW: ... -->` comments in the generated MDX)
@@ -248,3 +288,5 @@ This avoids the architecture mismatch entirely and keeps the user in control of 
 - **`<Tabs>` / `<Tab>` are Mintlify components** — keep the exact casing and make sure the two tabs are named "Usage as App" and "Usage as MCP" (verbatim).
 - **Mintlify headings inside `<Tab>`** — use `##` for top-level within the tab (e.g. `## Installation`), `###` for sub-categories. Do not skip levels.
 - **The overview card order is alphabetical** — insert at the right position. Hunt for an adjacent card whose title comes just before/after and anchor the `Edit` there.
+- **Never hotlink the workspace `photo:` URL** in the MDX. Those `uploads.prisme.ai` / `api.<env>.prisme.ai` URLs are env-specific (a sandbox file URL breaks once published to prod docs), rotate on workspace re-creation, hit the platform CDN instead of the docs CDN, and leak a request to a third-party host on every page render. Phase 4.5 copies the binary into `<docs-repo>/images/connectors/<slug>.<ext>` for that reason — use that relative path.
+- **Don't skip the `<<HEADER_ICON>>` lettrine.** Phase 4 substitutes a float-left `<img width="96">` at the very top of the body so the connector page opens on the service's brand mark (the same asset that drives the overview card icon). It is what makes a connector page recognizable in a tab of 20 docs. Only omit it when Phase 4.5 had no asset to copy. Keep the exact JSX shape from the SKILL — the `float: left` + `marginRight` + `marginBottom` combo is what wraps the intro paragraph around the icon; changing it to `<Frame>` or centering it breaks the lettrine effect.

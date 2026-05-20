@@ -1,3 +1,11 @@
+{/*
+  <<ICON>> resolution (in priority order, per Phase 4.5 + Phase 5.1):
+    1. Local asset path copied from the workspace's `photo:` or `logo.*` file,
+       e.g. `/images/connectors/<<SERVICE_SLUG>>.png` — Mintlify renders it as <img>.
+       NEVER a hotlinked uploads.prisme.ai / api.<env>.prisme.ai URL.
+    2. Fallback: Font Awesome name (e.g. `ticket`, `clock`, `book`) only if no
+       photo and no local logo could be obtained.
+*/}
   <Card title="<<SERVICE_NAME>>" icon="<<ICON>>" href="/apps-store/marketplace/connectors/<<SERVICE_SLUG>>">
     <<CARD_SUMMARY>>
   </Card>
