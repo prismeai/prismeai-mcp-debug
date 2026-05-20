@@ -8,6 +8,8 @@ import { resolveWorkspaceAndEnvironment, environmentsConfig, PRISME_API_BASE_URL
 import { enforceReadonlyMode, truncateJsonOutput } from "../utils.js";
 import { lintAutomation, type AutomationLintResult } from "../../linter/dist/index.js";
 
+const PROTECTED_WORKSPACE_LABEL = "one-product";
+
 /**
  * Format linting errors for human-readable output
  */
@@ -35,6 +37,54 @@ function formatLintErrors(result: AutomationLintResult): string {
   }
 
   return lines.join("\n");
+}
+
+function resolveLocalWorkspaceDirectory(resolvedPath: string): string {
+  const currentDir = join(resolvedPath, "current");
+  if (
+    basename(resolvedPath) !== "current" &&
+    existsSync(currentDir) &&
+    statSync(currentDir).isDirectory()
+  ) {
+    const looksLikeWorkspaceRoot = ["automations", "pages", "imports", "ux", "collections"].some((name) =>
+      existsSync(join(resolvedPath, name))
+    );
+    if (!looksLikeWorkspaceRoot) {
+      return currentDir;
+    }
+  }
+
+  return resolvedPath;
+}
+
+function getWorkspaceIndexLabels(workspaceDir: string): { indexPath?: string; labels: string[]; error?: string } {
+  const indexPath = join(workspaceDir, "index.yml");
+  if (!existsSync(indexPath)) {
+    return {
+      labels: [],
+      error: `Workspace index.yml not found at ${indexPath}; cannot verify protected workspace labels.`,
+    };
+  }
+
+  try {
+    const parsed = yaml.load(readFileSync(indexPath, "utf-8"));
+    const labels = parsed && typeof parsed === "object" && "labels" in parsed
+      ? (parsed as { labels?: unknown }).labels
+      : undefined;
+
+    return {
+      indexPath,
+      labels: Array.isArray(labels) ? labels.filter((label): label is string => typeof label === "string") : [],
+    };
+  } catch (error) {
+    return {
+      indexPath,
+      labels: [],
+      error: `Unable to read workspace labels from ${indexPath}: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
+    };
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1211,6 +1261,36 @@ export async function handleToolCall(
         };
       }
 
+      // Import API expects the archive to contain a top-level "current/" directory
+      // (same structure as workspace exports).
+      const workspaceDir = resolveLocalWorkspaceDirectory(resolvedPath);
+      const labelCheck = getWorkspaceIndexLabels(workspaceDir);
+      if (labelCheck.error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${labelCheck.error}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (labelCheck.labels.includes(PROTECTED_WORKSPACE_LABEL)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Error: Workspace is protected because ${labelCheck.indexPath} contains label "${PROTECTED_WORKSPACE_LABEL}". ` +
+                "This workspace must not be updated through push_workspace. Warn the user that it is a protected one-product workspace and do not retry this push.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const backupResult = await apiClient.publishVersion(
         message,
         `Backup before MCP push: ${message}`,
@@ -1235,23 +1315,6 @@ export async function handleToolCall(
           }
         }
       };
-
-      // Import API expects the archive to contain a top-level "current/" directory
-      // (same structure as workspace exports).
-      let workspaceDir = resolvedPath;
-      const currentDir = join(resolvedPath, "current");
-      if (
-        basename(resolvedPath) !== "current" &&
-        existsSync(currentDir) &&
-        statSync(currentDir).isDirectory()
-      ) {
-        const looksLikeWorkspaceRoot = ["automations", "pages", "imports", "ux", "collections"].some((name) =>
-          existsSync(join(resolvedPath, name))
-        );
-        if (!looksLikeWorkspaceRoot) {
-          workspaceDir = currentDir;
-        }
-      }
 
       addDirectoryToZip(workspaceDir, "current");
 
