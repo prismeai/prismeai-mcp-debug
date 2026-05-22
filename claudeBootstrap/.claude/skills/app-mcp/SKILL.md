@@ -475,7 +475,16 @@ All of these were already hit on existing workspaces — don't rediscover them:
 - **MCP Core's internal break on invalid API key** — we bypass MCP Core for `tools/call`. MCP Core is kept only for `tools/list` / `initialize`.
 - **MCP notifications must be empty at the HTTP wire boundary** — `notifications/initialized` and any JSON-RPC message without an `id` must produce `202 Accepted` with no body. Do not return `{}`, `null`, `""`, or a JSON-RPC success object. Validate this in the consumer workspace with a narrow DSUL `fetch` transport-contract test, not only `execute_automation`. If the DSUL output is intentionally empty but the HTTP response body is `{}`, fix the platform runtime serializer instead of changing the connector contract.
 - **`integer` type** — DSUL only accepts `number`. Convert every `type: integer` in the swagger to `number` in DSUL.
-- **NEVER use a ternary (`cond ? a : b`) inside a DSUL `{% %}` or `{{ }}` expression** — it raises `InvalidExpressionSyntax: invalid syntax` at runtime (NOT caught by `validate_automation`). To compute a value conditionally, pre-`set` the variable then flip it with a `conditions:` block (`- set: {name: ok, value: false}` then `- conditions: '{{x}}': [- set: {name: ok, value: true}]`). Ternaries ARE valid inside Custom Code `code: |` blocks and inline page `<script>` (real JS) — the ban applies only to DSUL expressions. Common offenders: helper `output:` booleans like `'{% {{x}} ? true : false %}'`.
+- **NEVER use a ternary (`cond ? a : b`) inside a DSUL `{% %}` or `{{ }}` expression** — it raises `InvalidExpressionSyntax: invalid syntax` at runtime (NOT caught by `validate_automation`). The #1 offender is a helper `output:` boolean like `setupOk: '{% {{addedTool.id}} ? true : false %}'`. To compute a value conditionally, pre-`set` the variable then flip it with a `conditions:` block:
+  ```yaml
+  - set: { name: ok, value: false }
+  - conditions:
+      '{{x}}':
+        - set: { name: ok, value: true }
+  output:
+    ok: '{{ok}}'   # NOT '{% {{x}} ? true : false %}'
+  ```
+  Ternaries ARE valid inside Custom Code `code: |` blocks and inline page `<script>` (real JS) — the ban applies only to DSUL `{% %}`/`{{ }}` expressions. (This bug shipped latent in `google-mail-consumer`'s `_runMcpToolWithAgent` + `_createTestDoc` helpers — every Agent Factory MCP test 500'd before asserting; the `*-consumer` helpers are the usual place it bites.)
 - **`arguments: {}` or empty comment body** — YAML-parse-invalid schema. If the automation has no arguments, omit the key.
 - **Hyphenated keys in expressions** — use `{{obj["key-name"]}}`, never `{{obj.key-name}}` (parsed as subtraction).
 - **Dispatcher default branch** — only needed when you have a generic fallback (GraphQL dispatcher). Without it, set `result: null` and `!{{result}}` becomes an "Unknown tool" error — that's fine.
