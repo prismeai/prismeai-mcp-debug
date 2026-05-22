@@ -66,6 +66,7 @@ The rule audit codes (all trace to `app-mcp/SKILL.md`):
 | `R9-raw-body` | NEED_HUMAN | `handleApiError` does not echo raw `json(response.body)` |
 | `R10-secret` | NEED_HUMAN | credential-bearing `config.schema` fields are `secret: true` |
 | `R11/R12-oauth` | NEED_HUMAN | (OAuth only) getConfig `{{`-guard + onInstall populates `oauthCallbackUrl` |
+| `R13-secret-provision` | NEED_HUMAN | onInstall auto-wires the per-tenant **Secrets-section ↔ app-instance** binding for any connection credential — **PAT / token / apiKey / password / clientSecret / OAuth client secret**, not just OAuth (`makeSecretRef`/`makeConfigRef` + PATCH `/security/secrets` + PATCH `/config` binding B + binding A in the terminal merge). Absent = relies on direct config-form entry (value visible in the form, no redaction). Canonical: `google-docs`. See memory `feedback_oninstall_secret_provisioning`. |
 
 🔴 MAJOR = mechanical, safe to fix and push. 🟠 NEED_HUMAN = surface to the user before touching.
 

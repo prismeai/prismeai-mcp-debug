@@ -261,23 +261,59 @@ def rule_audit(conn_dir, subs, is_oauth):
                 H("R9-raw-body", "handleApiError may return raw `json(response.body)` — "
                                  "can leak credential echoes. Bound the extracted fields.")
 
-    # R10 — credentials should be secret:true in config.schema.
-    # Exclude readOnly auto-populated fields (mcpApiKey/mcpEndpoint/oauthCallbackUrl)
-    # and obvious non-secrets (URLs, TTLs, endpoints) to avoid noise.
+    # Collect per-tenant credential fields in config.schema. Exclude readOnly
+    # auto-populated fields (mcpApiKey/mcpEndpoint/oauthCallbackUrl), the CENTRAL
+    # HMAC `appSecret` (not per-tenant), and obvious non-secrets (URLs/TTLs/scopes).
     schema = (cfg.get("schema") or {})
+    # NB: no bare `pat` — it substring-matches groupPath/allowedPath/patName.
+    # The real secret field `patSecret` is still caught via `secret`.
     cred_re = re.compile(r"(token|secret|password|apikey|api_key|clientid|client_id|"
                          r"clientsecret|client_secret|refreshtoken)", re.I)
     nonsecret_re = re.compile(r"(url|uri|ttl|endpoint|scopes?)$", re.I)
+    cred_fields = []
     for field, spec in schema.items():
         if not isinstance(spec, dict):
             continue
         if not cred_re.search(field) or nonsecret_re.search(field):
             continue
-        if field in ("mcpApiKey", "mcpEndpoint", "oauthCallbackUrl") or spec.get("readOnly"):
+        if field in ("mcpApiKey", "mcpEndpoint", "oauthCallbackUrl", "appSecret") \
+                or spec.get("readOnly"):
             continue
+        cred_fields.append(field)
+        # R10 — credential fields should be secret:true (redacted in events)
         if not spec.get("secret"):
             H("R10-secret", f"config.schema `{field}` looks credential-bearing but is not "
                             "`secret: true` (unredacted in events). Confirm intent.")
+
+    # R13 — per-tenant connection secrets (PAT / token / apiKey / password /
+    # clientSecret / OAuth client secret) auto-wired from the workspace Secrets
+    # section to the app-instance config by onInstall (makeSecretRef/makeConfigRef
+    # + PATCH /security/secrets = provision + PATCH /config = binding B + binding A
+    # in the terminal merge). NOT OAuth-specific — any token-auth connector with a
+    # per-tenant credential benefits. Absent = relies on the admin typing the
+    # secret straight into the app-instance config form (no Secrets-section UX,
+    # value visible in the form). Canonical pattern: google-docs.
+    if cred_fields:
+        oi_text = ""
+        oi_path = os.path.join(conn_dir, "automations", "onInstall.yml")
+        if os.path.isfile(oi_path):
+            with open(oi_path) as f:
+                oi_text = f.read()
+        cc_prov = ""
+        if os.path.isfile(cc_path):
+            with open(cc_path) as f:
+                cc_prov = f.read()
+        has_provision = (
+            "makeSecretRef" in cc_prov and "makeConfigRef" in cc_prov
+            and "security/secrets" in oi_text and re.search(r"/config['\"]", oi_text)
+        )
+        if not has_provision:
+            H("R13-secret-provision", "onInstall does NOT auto-provision the workspace "
+              f"Secrets-section ↔ app-instance binding for per-tenant credential(s) "
+              f"{cred_fields} (makeSecretRef/makeConfigRef + PATCH /security/secrets + PATCH "
+              "/config). The connector relies on direct app-instance config-form entry. "
+              "Consider the auto-wiring UX (canonical: google-docs) — applies to PAT/token/"
+              "apiKey/password, not just OAuth.")
 
     # OAuth-specific
     if is_oauth:
