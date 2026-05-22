@@ -28,6 +28,45 @@ function checkMissingArguments(automation: unknown): ErrorObject[] {
   return [];
 }
 
+function escapeJsonPointerSegment(segment: string): string {
+  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+/**
+ * Rejects argument schema shapes that look like runtime validation but are not
+ * DSUL-safe. Required arguments must be enforced explicitly in automation steps.
+ */
+function validateDSULSafeArgumentValidation(automation: unknown): ErrorObject[] {
+  if (!automation || typeof automation !== 'object') return [];
+
+  const auto = automation as Record<string, unknown>;
+  if (auto.validateArguments !== true) return [];
+
+  const args = auto.arguments;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return [];
+
+  const errors: ErrorObject[] = [];
+
+  for (const [argName, argSchema] of Object.entries(args as Record<string, unknown>)) {
+    if (!argSchema || typeof argSchema !== 'object' || Array.isArray(argSchema)) {
+      continue;
+    }
+
+    const schema = argSchema as Record<string, unknown>;
+    if (schema.required === true) {
+      errors.push({
+        keyword: 'argumentValidation',
+        instancePath: `/arguments/${escapeJsonPointerSegment(argName)}/required`,
+        schemaPath: '#/argumentValidation/unsupportedRequiredFlag',
+        params: { argument: argName },
+        message: `Argument "${argName}" uses required: true, which is not DSUL-safe with validateArguments: true. Add explicit conditions in the automation body to validate required arguments.`,
+      } as ErrorObject);
+    }
+  }
+
+  return errors;
+}
+
 /**
  * Validates that each instruction object has exactly one top-level key.
  * Multiple keys indicate a YAML indentation error where arguments
@@ -74,6 +113,11 @@ export function lintAutomation(
 
     if (!valid) {
       return { valid: false, errors, warnings };
+    }
+
+    const argumentValidationErrors = validateDSULSafeArgumentValidation(automation);
+    if (argumentValidationErrors.length > 0) {
+      return { valid: false, errors: [...errors, ...argumentValidationErrors], warnings };
     }
 
     // Validate instruction structure (always enabled)

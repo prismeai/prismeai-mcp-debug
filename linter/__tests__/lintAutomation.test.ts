@@ -178,6 +178,29 @@ describe('lintAutomation', () => {
     });
   });
 
+  describe('DSUL-safe argument validation', () => {
+    it('should reject per-argument required: true when validateArguments is enabled', () => {
+      const result = lintAutomation({
+        name: 'test',
+        arguments: {
+          name: {
+            type: 'string',
+            required: true,
+          },
+        },
+        validateArguments: true,
+        do: [],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e =>
+        e.instancePath === '/arguments/name/required' &&
+        e.message?.includes('required: true') &&
+        e.message?.includes('conditions')
+      )).toBe(true);
+    });
+  });
+
   describe('strict mode', () => {
     it('should default to strict: false', () => {
       // Unknown argument INSIDE instruction args should NOT error in non-strict mode
