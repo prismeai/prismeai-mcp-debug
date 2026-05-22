@@ -1,13 +1,14 @@
 ---
 name: app-mcp
 description: Scaffold a brand-new Prisme.ai App + MCP workspace for a third-party SaaS (REST or GraphQL). Produces index.yml, security.yml, .import.yml, helpers, Custom Code, MCP Core, tool/method automations, public App-mode instructions, and pushes to prod. Use when the user says "build an app+mcp for X", "créer une app+mcp pour X", or similar. Reuses patterns from the existing workspaces in `./prismeai-workspaces/workspaces/`.
-argument-hint: "[service-name] [?api-docs-url]"
+argument-hint: '[service-name] [?api-docs-url]'
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, AskUserQuestion, Agent, mcp__prisme-ai-builder__get_prisme_documentation, mcp__prisme-ai-builder__validate_automation, mcp__prisme-ai-builder__push_workspace, mcp__prisme-ai-builder__search_workspaces
 ---
 
 # App + MCP workspace builder
 
 You are scaffolding a **Prisme.ai workspace** that exposes a third-party SaaS both as:
+
 - A **Prisme.ai App** — tenants can call `<ServiceName>.operation:` directly from their automations
 - An **MCP server** — external AI agents (Claude Desktop, etc.) can call tools via JSON-RPC 2.0 on a central endpoint
 
@@ -50,6 +51,7 @@ The final workspace must look like this, anchored at `prismeai-workspaces/worksp
 ```
 
 **Naming rules**:
+
 - `<slug>` = folder name = workspace slug = lowercased-with-dashes (e.g. `example-service`, `my-saas`)
 - **Everything except the public App-mode "instructions" must be `private: true`.** That includes the helpers (`buildAppAuth`, `executeApiCall`, `handleApiError`, `formatToolOutput`, `routeToolCall`), the dispatchers (`tool-restOp`, `tool-graphqlOp`, `method-restOp`, `method-graphqlOp`), and the entire `00_MCP/*` set (`mcp`, `generateKey`, `getConfig`, `onInstall`). `private: true` only hides automations from the App's instructions list — it does NOT block `endpoint: true` HTTP webhook access nor event-triggered execution. So the webhook automations (`mcp`, `generateKey`, `getConfig`) stay reachable, and `onInstall` still fires on `workspaces.apps.installed`/`apps.configured`.
 - Public App-mode automations (the "instructions") use the bare operation name (e.g. `getTests.yml`, `createTest.yml`) and are **NOT** `private:`. They stay 1-per-op so tenants can keep calling `<Service>.<operation>:` from their automations.
@@ -82,7 +84,7 @@ Run phases sequentially. Pause after each for confirmation when a decision affec
    - **Basic auth**: `Basic base64(email:token)`
 5. **Workspace ID** — `push_workspace` does NOT auto-create a workspace; it requires an existing target. Two paths:
    - **User already created one**: ask for the ID, fill `<<WORKSPACE_ID>>` immediately in `.import.yml` + `index.yml`.
-   - **Brand-new workspace**: use the **`create_workspace`** MCP tool **early** (Phase 1 or Phase 6, just before the first `push_workspace`) with `{name, slug, description, labels}` to mint a real ID, then substitute it into `<<WORKSPACE_ID>>` placeholders. Do NOT push first and hope it creates the workspace — that's not how `push_workspace` works (it returns `Unknown workspace name` and aborts).
+   - **Brand-new workspace**: use the **`create_workspace`** MCP tool **early** (Phase 1 or Phase 6, just before the first `push_workspace`) with `{name, slug, description, labels}` to mint a real ID, then substitute it into `<<WORKSPACE_ID>>` placeholders. **`labels` MUST include `app-mcp`** (plus `MCP`, `production:app`, and the human service name) — `app-mcp` is the canonical discovery label for the connector fleet, used by the `/app-mcp-update-all` skill to find every connector. Do NOT push first and hope it creates the workspace — that's not how `push_workspace` works (it returns `Unknown workspace name` and aborts).
 
 **Do NOT** proceed to phase 2 without these 4 facts confirmed.
 
@@ -124,6 +126,7 @@ Run phases sequentially. Pause after each for confirmation when a decision affec
 **Goal**: create all non-tool files (config, security, imports, helpers) from the templates in `./templates/`.
 
 Templates use `<<PLACEHOLDER>>` syntax. Replace these globally:
+
 - `<<SERVICE_NAME>>` → Human-readable name (e.g. `AcmeCorp`, `MySaas`)
 - `<<SERVICE_SLUG>>` → camelCase slug used in event names (e.g. `acmeCorp`, `mySaas`)
 - `<<WORKSPACE_ID>>` → Prisme.ai workspace ID (e.g. `_gwEr1h`) — only known after the workspace is created on the platform, use a placeholder then update
@@ -132,6 +135,7 @@ Templates use `<<PLACEHOLDER>>` syntax. Replace these globally:
 - `<<PROVIDER_APP_URL>>` → OAuth-app management page URL (Phase 4.5 only — captured in Phase 1)
 
 **Steps**:
+
 1. `mkdir -p prismeai-workspaces/workspaces/<slug>/{automations,imports,pages}`
 2. Copy `templates/security.yml` verbatim.
 3. Copy `templates/.import.yml` and substitute placeholders.
@@ -219,6 +223,7 @@ Templates use `<<PLACEHOLDER>>` syntax. Replace these globally:
 ### Tenant onboarding UX — auto-populate OAuth setup fields
 
 Tenant admins installing an OAuth-enabled app need to know two things the skill can pre-compute:
+
 - **Where to create the OAuth app** on the provider → hard-coded in the `oauthClientId` + `oauthClientSecret` descriptions at scaffold time via `<<PROVIDER_APP_URL>>` (captured in Phase 1).
 - **What redirect URI to paste back into the provider** → `{{global.apiUrl}}/workspaces/slug:<<SERVICE_SLUG>>/webhooks/oauthCallback`. Dynamic per environment, so NOT hard-codable in the template. Instead, `onInstall.yml` computes it at install time and merges it into a readOnly `oauthCallbackUrl` config field (right next to `mcpEndpoint`). Admin reads the value straight from the UI, copies it, pastes in the provider's OAuth app config.
 
@@ -248,6 +253,7 @@ The hand-authored equivalent is the `*-consumer` pattern (`index.yml config.valu
 **Goal**: 1 MCP tool per **entity** (with an `action` enum), N public App-mode automations (1 per op for tenant ergonomics), 4 generic dispatchers handling everything.
 
 **Why entity grouping is the default** (not 1-tool-per-op):
+
 - **OpenAI `gpt-5-chat-latest` caps tool arrays at 128.** Any mid-size API (40+ ops) blows past this; large APIs (Tableau: 131 ops, Jira: 200+) are blocked entirely. Anthropic Claude is more permissive but still benefits.
 - **LLM disambiguation is sharper** with 15-25 entity tools than with 100+ specific tools.
 - **No code-size penalty** — all ops still routable through one generic dispatcher backed by the JS registry.
@@ -278,6 +284,7 @@ tools/call("workbooks", {action:        ┌─ mcp.yml (extracts toolName + argu
 1. **Define `ENTITY_OPS`** — a Python dict mapping entity → action → operationName. Pick entity names from the API's resource taxonomy (`workbooks`, `users`, `projects`, etc.). Common action vocabulary: `list`, `get`, `create`, `update`, `delete`. Resource-specific actions are fine: `download`, `publish`, `run`, `addPermissions`, `getRecentlyViewed`, etc.
 
    Example:
+
    ```python
    ENTITY_OPS = {
      'projects': {'list':'listProjects','create':'createProject','update':'updateProject','delete':'deleteProject'},
@@ -296,18 +303,37 @@ tools/call("workbooks", {action:        ┌─ mcp.yml (extracts toolName + argu
      - `required: [action]`
      - `properties`: `action` (enum of all actions) + the **union** of all path/query/body params from every underlying op + `outputFormat`
      - For path params, expose camelCase versions (`siteId`, not `site-id`) — the dispatcher restores hyphens for path substitution.
-   - Apply the broader-default-than-intent enrichment heuristic at the **action description level**, not the tool description level (the action bullet says "params: filter, scope=assigned_to_me — pass `scope` for *your* X").
+   - Apply the broader-default-than-intent enrichment heuristic at the **action description level**, not the tool description level (the action bullet says "params: filter, scope=assigned_to_me — pass `scope` for _your_ X").
 
 3. **Mirror into `imports/MCP Core.yml`** — same mcpTools array. MCP Core reads this at install time and serves it on `tools/list`.
 
 4. **Add `resolveToolAction(toolName, action)`** to `imports/Custom Code.yml`:
+
    ```js
-   const ENTITY_OPS = {/* …big literal… */};
+   const ENTITY_OPS = {
+     /* …big literal… */
+   };
    const ent = ENTITY_OPS[toolName];
    if (!ent) return { error: 'Unknown entity: ' + toolName };
-   if (!action) return { error: 'Missing required argument `action` for ' + toolName + '. Available: ' + Object.keys(ent).sort().join(', ') };
+   if (!action)
+     return {
+       error:
+         'Missing required argument `action` for ' +
+         toolName +
+         '. Available: ' +
+         Object.keys(ent).sort().join(', '),
+     };
    const op = ent[action];
-   if (!op) return { error: 'Unknown action `' + action + '` for ' + toolName + '. Available: ' + Object.keys(ent).sort().join(', ') };
+   if (!op)
+     return {
+       error:
+         'Unknown action `' +
+         action +
+         '` for ' +
+         toolName +
+         '. Available: ' +
+         Object.keys(ent).sort().join(', '),
+     };
    return { operationName: op };
    ```
 
@@ -324,6 +350,7 @@ tools/call("workbooks", {action:        ┌─ mcp.yml (extracts toolName + argu
 8. **Do NOT create `triggerSync.yml`.** Incompatible with the dispatcher pattern (see Common Traps + memory entry `feedback_mcp_core_dispatcher_incompatible.md`).
 
 **Generation tips**:
+
 - One Python script reads `swagger.yml`, builds `ENTITY_OPS`, generates `index.yml mcpTools` + `imports/MCP Core.yml` + `imports/Custom Code.yml` updates + N public automations. See `templates/_generate_entity_tools.py.tmpl` for the canonical shape.
 - Always run `Custom Code.run: pruneEmpty` on request bodies / GraphQL variables to strip nulls.
 - For ops with **no arguments**, omit the `arguments:` key entirely (do NOT write `arguments: {}`).
@@ -331,6 +358,7 @@ tools/call("workbooks", {action:        ┌─ mcp.yml (extracts toolName + argu
 - Auth-internal ops (`signIn`, `signOut`, refresh endpoints) **must NOT** appear in `ENTITY_OPS` — they're called by `buildAppAuth` and should never be exposed.
 
 **Sanity checks before push**:
+
 - `len(ENTITY_OPS)` ≤ 30 (aim for clarity)
 - Every op in `swagger.yml` (minus auth-internal) appears in exactly one entity bucket
 - No two entities share an action that resolves to the same operationName
@@ -380,7 +408,7 @@ tools/call("workbooks", {action:        ┌─ mcp.yml (extracts toolName + argu
                print(f"INVALID type:array in Custom Code function {fname}.{pname} — use type:object")
    ```
 3. Human review: list `method-*`, `tool-*`, `<op>` counts to the user. Confirm before pushing.
-4. **Make sure the target workspace exists.** Brand-new workspace? Call `create_workspace` FIRST with `{name, slug, description, labels}` to get a real ID, then sed the ID into `<<WORKSPACE_ID>>` in `.import.yml` + `index.yml`. **`push_workspace` will not create a workspace from a slug — it requires the workspace to already exist.** Default environment: **`sandbox`** unless the user explicitly asks for `prod` (CLAUDE.md default, and a fresh prod connector should be sandbox-validated first anyway).
+4. **Make sure the target workspace exists.** Brand-new workspace? Call `create_workspace` FIRST with `{name, slug, description, labels}` to get a real ID, then sed the ID into `<<WORKSPACE_ID>>` in `.import.yml` + `index.yml`. **`labels` MUST include `app-mcp`** (the canonical fleet-discovery label — see `/app-mcp-update-all`) alongside `production:app`. **`push_workspace` will not create a workspace from a slug — it requires the workspace to already exist.** Default environment: **`sandbox`** unless the user explicitly asks for `prod` (CLAUDE.md default, and a fresh prod connector should be sandbox-validated first anyway).
 5. `push_workspace` with `workspaceId: <ID>` (NOT `workspaceName`, since a fresh workspace isn't in the env mapping yet) on `sandbox` with a short message (`initial`, `add-tools`, etc., max 15 chars, alphanumeric + `-_`). Expect ONE error in the response: `"Could not publish app — Missing photo"`. That's normal — the workspace + all files were imported; only the App-publish step needs the photo, which we set in step 6.
 6. **Upload the workspace logo via the Prisme MCP, then set `photo`** — the workspace now exists, so host the logo on it instead of hotlinking an external URL.
 
@@ -396,6 +424,7 @@ tools/call("workbooks", {action:        ┌─ mcp.yml (extracts toolName + argu
    ```
 
    The response is an array of file objects — read `result[0].url` (looks like `https://api.<env>.prisme.ai/v2/files/<ID>/<fileId>.<name>`), inject it into `index.yml` `photo:`, re-`push_workspace` (this time the App-publish step succeeds), then delete the local `logo.<ext>` build artifact. **Never** fall back to hotlinking the original external source URL into `photo:`. (See memory entry `feedback_app_mcp_logo_upload_via_mcp.md` — older revisions of this skill recommended an `AskUserQuestion` curl/UI fallback, which is wrong.)
+
 7. **Post-push smoke check — do not skip**, it catches deploy-time failures that validation can't:
    - **Custom Code reload**: right after push, search events for `Custom Code.error` on `fetchAPI` / `onParentAppPublish` — if any, the CC runtime didn't reload and functions will be "not found" at runtime. Recovery: `update_app_instance_config` with the **complete** functions map (the tool replaces, doesn't merge — see memory). Then re-push.
    - **generateKey round-trip**: `execute_automation generateKey` with a dummy `{body: {workspaceId: "test", getConfigUrl: "https://x.y/z"}}` and confirm the response is a proper signed key `^[A-Za-z0-9_-]+\.[a-f0-9]{64}$` — not an error object. Catches `#`-in-code-block-style Custom Code issues.
@@ -407,11 +436,11 @@ tools/call("workbooks", {action:        ┌─ mcp.yml (extracts toolName + argu
      grep -nE "path: '[^']*/(close|reopen|approve|unapprove|merge|cancel|retry|revoke|publish|archive|lock)'" automations/method-*.yml
      ```
      Common truth: most APIs use state-event-in-body (e.g. `PUT /issues/{iid}` + `{state_event: close}`) instead of a dedicated sub-resource. Fix any hit before smoke-testing.
-7. Instruct the user how to **activate**:
+8. Instruct the user how to **activate**:
    - Configure secrets (`<slug>Token` or `<slug>ClientId`/`<slug>ClientSecret` + `appSecret`) on the central workspace.
    - Install the app in a tenant workspace; configure credentials. `mcpEndpoint` + `mcpApiKey` populate automatically via `onInstall`.
    - Call `<ServiceName>.<op>:` from a tenant automation, or point an MCP client at `mcpEndpoint` using `mcp-api-key`.
-8. Optionally create `pages/_doc.yml` — look at an existing workspace's `pages/_doc.yml` as reference (TabsView with "Usage as App" / "Usage as MCP").
+9. Optionally create `pages/_doc.yml` — look at an existing workspace's `pages/_doc.yml` as reference (TabsView with "Usage as App" / "Usage as MCP").
 
 ---
 
@@ -422,6 +451,7 @@ The `/mcp` endpoint does **not** read `config.value.mcpTools` from `index.yml` d
 **Do NOT use `MCP Core.syncMcpTools` / a `triggerSync` automation.** The sync routine scans `tool-*.yml` automations on disk; with the dispatcher pattern, only 2 such files exist (`tool-restOp`, `tool-graphqlOp`), so calling sync would **overwrite** the real entity-grouped mcpTools array with two dispatcher entries. This is a one-way data loss — you'd have to re-push the workspace to recover.
 
 **When you change the mcpTools list** (add/rename/drop ops, change descriptions), the workflow is:
+
 1. Edit `index.yml` mcpTools (or regenerate via the entity-grouping script)
 2. Mirror into `imports/MCP Core.yml`
 3. `push_workspace` — Prisme.ai re-imports `imports/MCP Core.yml` and replaces the MCP Core app instance's config
@@ -496,7 +526,7 @@ All of these were already hit on existing workspaces — don't rediscover them:
 - **`MCP Core.syncMcpTools` overwrites the entity-grouped mcpTools array** — the sync routine scans `tool-*.yml` files on disk and rebuilds mcpTools from them. With the dispatcher pattern, only `tool-restOp.yml` and `tool-graphqlOp.yml` exist, so a single sync call replaces your 20 entity tools with 2 dispatcher tools — silent data loss recoverable only by re-pushing. **Never create `triggerSync.yml`. Never call `MCP Core.syncMcpTools` from any automation.** Push = sync. The mcpTools array is set once at install time via `imports/MCP Core.yml` and updated by re-importing the same file. (See memory entry `feedback_mcp_core_dispatcher_incompatible.md`.)
 - **Cache key must be bumped when credentials/scopes change** — `buildAppAuth` caches the access token in `session.<service>[cacheKey]` for 1-3h. If you migrate credentials (PAT → JWT, OAuth2 → Connected App) or add a scope, sessions with a cached token signed under the OLD shape keep using it until TTL expires — your fix appears to "not work". Bump the cache prefix `session.<service>` → `session.<service>V2` when the credential schema or scopes change. Same applies inside Custom Code if you cache anything keyed on credentials.
 - **JS comments in `code: |` blocks of Custom Code must use `//`, never `#`** — the Custom Code sandbox loads all `config.functions[].code` as a single JS module. A single `#` (from copy-pasted Python-style comments or untransformed template docs) is a JS syntax error that breaks the ENTIRE module, including unrelated functions like `generateSignedKey`. Symptom: `onInstall` completes but writes an error object as `mcpApiKey` instead of a signed key. The OAuth template fragment (`templates/oauth/imports/Custom-Code-oauth-fragment.yml`) historically had `#` comments inside `buildAuthorizeUrl.code: |` — verify after merging. Defense: `generateKey` should check `signedKey.error` and return HTTP 500 when Custom Code fails, and `onInstall` should validate `keyResponse.body.mcpApiKey` against `^[A-Za-z0-9_-]+\.[a-f0-9]{64}$` before merging and for its "already set" guard.
-- **`type: array` in Custom Code function `parameters` is INVALID and silently breaks the whole module** — the Custom Code parameter type system only supports `string | number | object | boolean`. Declaring `type: array` causes the CC loader to reject the entire `imports/Custom Code.yml` module, so EVERY function (including unrelated ones like `generateSignedKey`) starts returning `ObjectNotFoundError: Object not found, path: /run/<funcName>` at runtime. Symptom on a fresh app+mcp: `onInstall` fails with `Key generation failed: Function generateSignedKey not found` even though the function is plainly visible in `get_app_instance_config`. Root-cause hunt is misleading because the broken parameter is usually on a *sibling* function (we hit this on GitLab's `filterOAuthTools` having `tools: {type: array}` + `remove: {type: array}` — killed the whole module). **Fix: use `type: object` for list-shaped parameters.** JS code can iterate it as an array via `Array.isArray(x) ? x.filter(...) : ...` without any runtime change. Detection: the Phase 6 sanity-check script greps `imports/Custom Code.yml` for `type: array` under `config.functions.*.parameters.*` and flags every hit. (See memory entry `feedback_custom_code_no_array_type.md`.)
+- **`type: array` in Custom Code function `parameters` is INVALID and silently breaks the whole module** — the Custom Code parameter type system only supports `string | number | object | boolean`. Declaring `type: array` causes the CC loader to reject the entire `imports/Custom Code.yml` module, so EVERY function (including unrelated ones like `generateSignedKey`) starts returning `ObjectNotFoundError: Object not found, path: /run/<funcName>` at runtime. Symptom on a fresh app+mcp: `onInstall` fails with `Key generation failed: Function generateSignedKey not found` even though the function is plainly visible in `get_app_instance_config`. Root-cause hunt is misleading because the broken parameter is usually on a _sibling_ function (we hit this on GitLab's `filterOAuthTools` having `tools: {type: array}` + `remove: {type: array}` — killed the whole module). **Fix: use `type: object` for list-shaped parameters.** JS code can iterate it as an array via `Array.isArray(x) ? x.filter(...) : ...` without any runtime change. Detection: the Phase 6 sanity-check script greps `imports/Custom Code.yml` for `type: array` under `config.functions.*.parameters.*` and flags every hit. (See memory entry `feedback_custom_code_no_array_type.md`.)
 
 ### OAuth-specific traps (only relevant if Phase 4.5 was run)
 
@@ -521,14 +551,14 @@ See `mcp-auto-install.md` (in this skill folder) for the full reasoning behind t
 
 When in doubt, list `prismeai-workspaces/workspaces/` and read the closest-matching existing workspace. Match by API shape, not by name:
 
-| Target API shape | Look for a reference workspace with |
-|------------------|-------------------------------------|
-| REST-RPC, static token | Flat operation set, `Authorization: Bearer` header |
-| Pure GraphQL, static token | Single `/graphql` endpoint, one `Authorization` header |
-| Hybrid REST + GraphQL, OAuth2 client-credentials | JWT exchange with session cache, generic GraphQL dispatcher |
-| OAuth2 with token refresh (service-to-service) | Session-cached refresh flow |
-| **OAuth2 authorization-code (user-delegated)** | **`gitlab-debug-oauth`** — the canonical reference for Phase 4.5. Read its `README.md` for the full flow + gotchas. |
-| Basic auth, rich REST | `Basic base64(email:token)` header |
+| Target API shape                                                     | Look for a reference workspace with                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| REST-RPC, static token                                               | Flat operation set, `Authorization: Bearer` header                                                                                                                                                                                                                                            |
+| Pure GraphQL, static token                                           | Single `/graphql` endpoint, one `Authorization` header                                                                                                                                                                                                                                        |
+| Hybrid REST + GraphQL, OAuth2 client-credentials                     | JWT exchange with session cache, generic GraphQL dispatcher                                                                                                                                                                                                                                   |
+| OAuth2 with token refresh (service-to-service)                       | Session-cached refresh flow                                                                                                                                                                                                                                                                   |
+| **OAuth2 authorization-code (user-delegated)**                       | **`gitlab-debug-oauth`** — the canonical reference for Phase 4.5. Read its `README.md` for the full flow + gotchas.                                                                                                                                                                           |
+| Basic auth, rich REST                                                | `Basic base64(email:token)` header                                                                                                                                                                                                                                                            |
 | **Large API (>40 ops), entity-grouped MCP tools, JWT Connected App** | **`tableau`** — the canonical reference for the entity-grouping pattern (Phase 5 default). 131 ops compressed to 20 entity tools via `ENTITY_OPS` + `resolveToolAction` + `routeToolCall` + 4 generic dispatchers. Custom Code header `X-Tableau-Auth`, JWT signed in Custom Code with HS256. |
 
 Run `Read` on the matching workspace before starting phase 4, especially on the helpers and `imports/Custom Code.yml`. The skill templates here are deliberately minimal — the existing workspaces contain all the nuanced cases.
@@ -540,6 +570,7 @@ Run `Read` on the matching workspace before starting phase 4, especially on the 
 At the end of each phase, summarise in ≤5 bullets what was done and what's next. Never dump entire files — reference them by path.
 
 When the whole skill finishes, produce a final summary:
+
 - Paths of every created file (grouped by purpose)
 - Number of tools / public instructions / helpers
 - Deploy command that was run

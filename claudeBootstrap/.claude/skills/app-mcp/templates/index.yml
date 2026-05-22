@@ -11,13 +11,8 @@ description: >-
 # Never hardcode a hotlinked external logo URL.
 photo: ''
 labels:
-  - app-builder
-  - <<SERVICE_NAME>>
-  - MCP
+  - app-mcp
   - production:app
-  - App
-  - AI
-  - importFrom:<<WORKSPACE_ID>>
 customDomains: []
 repositories: {}
 

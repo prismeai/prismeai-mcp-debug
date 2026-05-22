@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+"""Audit ONE app-mcp connector workspace against the current app-mcp templates.
+
+Two outputs, both on stdout as a compact markdown report:
+
+  1. RULE AUDIT   — grep/parse checks derived from the app-mcp skill's
+                    "Common traps" + "MCP endpoint security checklist".
+                    Each finding is tagged MAJOR (mechanical, safe to fix) or
+                    NEED_HUMAN (judgment call).
+
+  2. TEMPLATE DIFF — for every template file that maps onto the connector,
+                    a YAML-NORMALIZED comparison (keys sorted, block-scalars
+                    re-folded, `description:` prose dropped, the 4 standard
+                    <<PLACEHOLDER>>s substituted). Raw textual noise — key
+                    reordering, fold width — is therefore neutralised, so a
+                    reported DRIFT is a real structural difference.
+
+The script never writes anything. The orchestrating skill reads the report,
+classifies each diff hunk as template-ahead (apply) vs workspace-ahead
+(preserve), and decides what to push.
+
+Usage:
+  audit_connector.py --connector <path/to/workspace> --templates <path/to/app-mcp/templates>
+"""
+import argparse
+import difflib
+import io
+import os
+import re
+import sys
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("PyYAML required: pip install pyyaml")
+
+# template-relative path -> (connector-relative path, class)
+#   A = verbatim: post-substitution it should be byte-identical; any DRIFT is
+#       either a template-ahead fix to apply OR an intentional local addition
+#       (e.g. webdav adds a `viewer` role to security.yml) — classify per hunk.
+#   B = structural but customised per auth-model / REST-vs-GraphQL / OAuth;
+#       diff is ADVISORY, route through the rule audit + human review.
+#   O = OAuth-only; compared only when the connector has oauthCallback.yml.
+FILE_MAP = {
+    "security.yml":                 ("security.yml", "A"),
+    "helpers/formatToolOutput.yml": ("automations/formatToolOutput.yml", "A"),
+    "helpers/generateKey.yml":      ("automations/generateKey.yml", "A"),
+    "helpers/getConfig.yml":        ("automations/getConfig.yml", "B"),
+    "helpers/handleApiError.yml":   ("automations/handleApiError.yml", "B"),
+    "helpers/routeToolCall.yml":    ("automations/routeToolCall.yml", "B"),
+    "helpers/buildAppAuth.yml":     ("automations/buildAppAuth.yml", "B"),
+    "helpers/executeApiCall.yml":   ("automations/executeApiCall.yml", "B"),
+    "helpers/mcp.yml":              ("automations/mcp.yml", "B"),
+    "helpers/onInstall.yml":        ("automations/onInstall.yml", "B"),
+    "imports/Custom-Code.yml":      ("imports/Custom Code.yml", "B"),
+    # OAuth-only
+    "oauth/automations/ensureAuthentication.yml": ("automations/ensureAuthentication.yml", "O"),
+    "oauth/automations/oauthCallback.yml":        ("automations/oauthCallback.yml", "O"),
+    "oauth/automations/refreshOAuthToken.yml":    ("automations/refreshOAuthToken.yml", "O"),
+    "oauth/automations/initiateOAuth.yml":        ("automations/initiateOAuth.yml", "O"),
+    "oauth/automations/checkAuthStatus.yml":      ("automations/checkAuthStatus.yml", "O"),
+    "oauth/automations/disconnectOAuth.yml":      ("automations/disconnectOAuth.yml", "O"),
+    "oauth/automations/method-connect.yml":       ("automations/method-connect.yml", "O"),
+    "oauth/automations/method-disconnect.yml":    ("automations/method-disconnect.yml", "O"),
+    "oauth/automations/tool-connect.yml":         ("automations/tool-connect.yml", "O"),
+    "oauth/automations/tool-disconnect.yml":      ("automations/tool-disconnect.yml", "O"),
+    "oauth/automations/connect.yml":              ("automations/connect.yml", "O"),
+    "oauth/automations/disconnect.yml":           ("automations/disconnect.yml", "O"),
+}
+
+DIFF_CAP = 60  # max normalized-diff lines printed per file
+
+
+def load_yaml(text):
+    try:
+        return yaml.safe_load(text), None
+    except Exception as e:  # noqa: BLE001
+        return None, str(e)
+
+
+def strip_descriptions(obj):
+    """Drop `description:` keys recursively — prose carries placeholders and
+    is not behaviour. `comment:` instructions are kept (they are list items)."""
+    if isinstance(obj, dict):
+        return {k: strip_descriptions(v) for k, v in obj.items() if k != "description"}
+    if isinstance(obj, list):
+        return [strip_descriptions(x) for x in obj]
+    return obj
+
+
+def normalize(text, subs):
+    for ph, val in subs.items():
+        text = text.replace(ph, val)
+    data, err = load_yaml(text)
+    if err is not None:
+        return None, err
+    norm = strip_descriptions(data)
+    return yaml.safe_dump(norm, sort_keys=True, default_flow_style=False,
+                          allow_unicode=True), None
+
+
+def derive_subs(conn_dir):
+    """Best-effort placeholder values from the connector's index.yml."""
+    idx_path = os.path.join(conn_dir, "index.yml")
+    name = slug = wsid = ""
+    base_url = ""
+    if os.path.isfile(idx_path):
+        with open(idx_path) as f:
+            idx, _ = load_yaml(f.read())
+        if isinstance(idx, dict):
+            name = idx.get("name", "") or ""
+            slug = idx.get("slug", "") or os.path.basename(conn_dir.rstrip("/"))
+            wsid = idx.get("id", "") or ""
+            cfgv = (idx.get("config") or {}).get("value") or {}
+            base_url = cfgv.get("baseUrl", "") or cfgv.get("apiUrl", "") or ""
+    if not slug:
+        slug = os.path.basename(conn_dir.rstrip("/"))
+    # camelCase service slug used in event names
+    parts = re.split(r"[-_ ]", slug)
+    service_slug = parts[0] + "".join(p.capitalize() for p in parts[1:]) if parts else slug
+    service_name = name or "".join(p.capitalize() for p in parts)
+    return {
+        "<<SERVICE_NAME>>": service_name,
+        "<<SERVICE_SLUG>>": service_slug,
+        "<<WORKSPACE_ID>>": wsid,
+        "<<BASE_URL>>": base_url,
+    }
+
+
+def iter_code_blocks(text):
+    """Yield (line_no, body_lines) for every `code: |` block in a YAML file."""
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        m = re.search(r"\bcode:\s*\|", lines[i])
+        if m:
+            base = len(lines[i]) - len(lines[i].lstrip())
+            start = i + 1
+            body = []
+            j = start
+            while j < len(lines):
+                ln = lines[j]
+                if ln.strip() == "":
+                    body.append((j + 1, ln))
+                    j += 1
+                    continue
+                indent = len(ln) - len(ln.lstrip())
+                if indent <= base:
+                    break
+                body.append((j + 1, ln))
+                j += 1
+            yield start, body
+            i = j
+        else:
+            i += 1
+
+
+def rule_audit(conn_dir, subs, is_oauth):
+    """Return list of (severity, code, message)."""
+    out = []
+    A = lambda c, m: out.append(("MAJOR", c, m))       # noqa: E731
+    H = lambda c, m: out.append(("NEED_HUMAN", c, m))  # noqa: E731
+
+    idx_path = os.path.join(conn_dir, "index.yml")
+    idx = {}
+    if os.path.isfile(idx_path):
+        with open(idx_path) as f:
+            idx, _ = load_yaml(f.read())
+            idx = idx or {}
+
+    # R1 — app-mcp label present (the discovery convention)
+    labels = idx.get("labels") or []
+    if "app-mcp" not in labels:
+        A("R1-label", "index.yml `labels` is missing `app-mcp` (discovery convention).")
+
+    cfg = (idx.get("config") or {})
+    cfgv = cfg.get("value") or {}
+
+    # R2 — mcpApiKey must NOT be in config.value (defeats onInstall guard)
+    if "mcpApiKey" in cfgv:
+        A("R2-mcpApiKey", "`config.value.mcpApiKey` is set — defeats onInstall's "
+                          "'key already generated' guard. Remove it.")
+
+    # R3 — type:array without items in mcpTools inputSchema
+    def check_array_items(tools, where):
+        for t in tools or []:
+            props = ((t.get("inputSchema") or {}).get("properties") or {})
+            for pn, ps in props.items():
+                if isinstance(ps, dict) and ps.get("type") == "array" and "items" not in ps:
+                    A("R3-array-items", f"{where}: tool `{t.get('name')}` prop `{pn}` is "
+                                        "`type: array` without `items:` (OpenAI/Azure reject).")
+    check_array_items(cfgv.get("mcpTools"), "index.yml")
+
+    # R4 — index.yml mcpTools must mirror imports/MCP Core.yml (runtime source of truth)
+    mcp_core_path = os.path.join(conn_dir, "imports", "MCP Core.yml")
+    if os.path.isfile(mcp_core_path):
+        with open(mcp_core_path) as f:
+            core, _ = load_yaml(f.read())
+        core_tools = (((core or {}).get("config") or {}).get("mcpTools")) or []
+        idx_tools = cfgv.get("mcpTools") or []
+        idx_names = sorted(t.get("name") for t in idx_tools)
+        core_names = sorted(t.get("name") for t in core_tools)
+        if idx_names != core_names:
+            A("R4-mcpcore-mirror", "`imports/MCP Core.yml` mcpTools differ from index.yml "
+                                   f"(index={len(idx_names)} vs core={len(core_names)} tools). "
+                                   "MCP Core is the runtime source — re-mirror.")
+        check_array_items(core_tools, "imports/MCP Core.yml")
+    else:
+        H("R4-mcpcore-missing", "No `imports/MCP Core.yml` — MCP `tools/list` has no source.")
+
+    # R5 — triggerSync.yml incompatible with dispatcher pattern
+    if os.path.isfile(os.path.join(conn_dir, "automations", "triggerSync.yml")):
+        A("R5-triggerSync", "`automations/triggerSync.yml` present — overwrites entity-grouped "
+                            "mcpTools with 2 dispatcher entries. Delete it.")
+
+    # Custom Code checks
+    cc_path = os.path.join(conn_dir, "imports", "Custom Code.yml")
+    if os.path.isfile(cc_path):
+        with open(cc_path) as f:
+            cc_text = f.read()
+        cc, cc_err = load_yaml(cc_text)
+        if cc_err is None and isinstance(cc, dict):
+            fns = ((cc.get("config") or {}).get("functions")) or {}
+            # R6 — type:array in CC parameters silently breaks the whole module
+            for fname, fdef in fns.items():
+                for pname, pspec in ((fdef or {}).get("parameters") or {}).items():
+                    if isinstance(pspec, dict) and pspec.get("type") == "array":
+                        A("R6-cc-array", f"Custom Code `{fname}.{pname}` is `type: array` — "
+                                         "breaks the ENTIRE CC module. Use `type: object`.")
+        # R7 — `#` comments inside code: | blocks (JS syntax error)
+        for _, body in iter_code_blocks(cc_text):
+            for lineno, ln in body:
+                if ln.lstrip().startswith("#"):
+                    A("R7-cc-hash", f"`#` comment in Custom Code code block at "
+                                    f"Custom Code.yml:{lineno} — JS-invalid, breaks the module.")
+    else:
+        H("R7-cc-missing", "No `imports/Custom Code.yml`.")
+
+    # Per-automation scans
+    autos_dir = os.path.join(conn_dir, "automations")
+    if os.path.isdir(autos_dir):
+        for fn in sorted(os.listdir(autos_dir)):
+            if not fn.endswith(".yml"):
+                continue
+            fpath = os.path.join(autos_dir, fn)
+            with open(fpath) as f:
+                txt = f.read()
+            # R8 — ternary inside DSUL {% %} / {{ }} (NOT inside code:| blocks)
+            code_line_set = set()
+            for _, body in iter_code_blocks(txt):
+                for lineno, _ in body:
+                    code_line_set.add(lineno)
+            for i, ln in enumerate(txt.splitlines(), 1):
+                if i in code_line_set:
+                    continue
+                if re.search(r"\{[%{].*\?.*:.*[%}]\}", ln):
+                    H("R8-ternary", f"Possible ternary in DSUL expr at {fn}:{i} — "
+                                    "InvalidExpressionSyntax at runtime. Verify.")
+            # R9 — raw provider body echoed in handleApiError
+            if fn == "handleApiError.yml" and re.search(r"json\(\s*\{\{\s*response\.body", txt):
+                H("R9-raw-body", "handleApiError may return raw `json(response.body)` — "
+                                 "can leak credential echoes. Bound the extracted fields.")
+
+    # R10 — credentials should be secret:true in config.schema.
+    # Exclude readOnly auto-populated fields (mcpApiKey/mcpEndpoint/oauthCallbackUrl)
+    # and obvious non-secrets (URLs, TTLs, endpoints) to avoid noise.
+    schema = (cfg.get("schema") or {})
+    cred_re = re.compile(r"(token|secret|password|apikey|api_key|clientid|client_id|"
+                         r"clientsecret|client_secret|refreshtoken)", re.I)
+    nonsecret_re = re.compile(r"(url|uri|ttl|endpoint|scopes?)$", re.I)
+    for field, spec in schema.items():
+        if not isinstance(spec, dict):
+            continue
+        if not cred_re.search(field) or nonsecret_re.search(field):
+            continue
+        if field in ("mcpApiKey", "mcpEndpoint", "oauthCallbackUrl") or spec.get("readOnly"):
+            continue
+        if not spec.get("secret"):
+            H("R10-secret", f"config.schema `{field}` looks credential-bearing but is not "
+                            "`secret: true` (unredacted in events). Confirm intent.")
+
+    # OAuth-specific
+    if is_oauth:
+        gc_path = os.path.join(conn_dir, "automations", "getConfig.yml")
+        if os.path.isfile(gc_path):
+            with open(gc_path) as f:
+                gc = f.read()
+            # R11 — unresolved {{secret}} guard
+            if 'matches' not in gc or '{{' not in gc:
+                H("R11-oauth-guard", "OAuth getConfig.yml may lack the `matches \"{{\"` guard "
+                                     "that wipes unresolved secret templates. Verify.")
+        oi_path = os.path.join(conn_dir, "automations", "onInstall.yml")
+        if os.path.isfile(oi_path):
+            with open(oi_path) as f:
+                oi = f.read()
+            if "oauthCallbackUrl" not in oi:
+                H("R12-oauth-callback", "OAuth onInstall.yml does not populate `oauthCallbackUrl` "
+                                        "readOnly config — tenant can't find the redirect URI.")
+    return out
+
+
+def diff_files(conn_dir, templates_dir, subs, is_oauth):
+    """Return list of (status, class, tmpl_rel, conn_rel, diff_text)."""
+    rows = []
+    for tmpl_rel, (conn_rel, cls) in FILE_MAP.items():
+        if cls == "O" and not is_oauth:
+            continue
+        tpath = os.path.join(templates_dir, tmpl_rel)
+        cpath = os.path.join(conn_dir, conn_rel)
+        if not os.path.isfile(tpath):
+            continue
+        if not os.path.isfile(cpath):
+            rows.append(("MISSING-IN-CONNECTOR", cls, tmpl_rel, conn_rel, ""))
+            continue
+        with open(tpath) as f:
+            tnorm, terr = normalize(f.read(), subs)
+        with open(cpath) as f:
+            craw = f.read()
+        cnorm, cerr = normalize(craw, {})
+        if terr or cerr:
+            # fall back to raw textual diff
+            with open(tpath) as f:
+                traw = f.read()
+            for ph, val in subs.items():
+                traw = traw.replace(ph, val)
+            d = list(difflib.unified_diff(traw.splitlines(), craw.splitlines(),
+                                          "template", "connector", lineterm=""))
+            rows.append(("DRIFT(raw)" if d else "IDENTICAL", cls, tmpl_rel, conn_rel,
+                         "\n".join(d[:DIFF_CAP])))
+            continue
+        if tnorm == cnorm:
+            rows.append(("IDENTICAL", cls, tmpl_rel, conn_rel, ""))
+        else:
+            d = list(difflib.unified_diff(tnorm.splitlines(), cnorm.splitlines(),
+                                          "template", "connector", lineterm=""))
+            rows.append(("DRIFT", cls, tmpl_rel, conn_rel, "\n".join(d[:DIFF_CAP])))
+    return rows
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--connector", required=True)
+    ap.add_argument("--templates", required=True)
+    args = ap.parse_args()
+
+    conn = args.connector.rstrip("/")
+    slug = os.path.basename(conn)
+    is_oauth = os.path.isfile(os.path.join(conn, "automations", "oauthCallback.yml"))
+    subs = derive_subs(conn)
+
+    buf = io.StringIO()
+    p = buf.write
+    p(f"# Audit — {slug}\n")
+    p(f"auth: {'OAuth (authorization-code)' if is_oauth else 'token/basic/client-creds'}  ")
+    p(f"| subs: SERVICE_NAME={subs['<<SERVICE_NAME>>']!r} "
+      f"SERVICE_SLUG={subs['<<SERVICE_SLUG>>']!r}\n\n")
+
+    findings = rule_audit(conn, subs, is_oauth)
+    p("## Rule audit\n")
+    if not findings:
+        p("✅ no rule findings\n")
+    else:
+        for sev, code, msg in findings:
+            icon = "🔴" if sev == "MAJOR" else "🟠"
+            p(f"- {icon} **{sev}** `{code}` — {msg}\n")
+    p("\n")
+
+    rows = diff_files(conn, args.templates, subs, is_oauth)
+    p("## Template diff\n")
+    drift = [r for r in rows if r[0].startswith("DRIFT") or r[0] == "MISSING-IN-CONNECTOR"]
+    ident = [r for r in rows if r[0] == "IDENTICAL"]
+    p(f"identical: {len(ident)} | drift/missing: {len(drift)}\n\n")
+    for status, cls, tmpl_rel, conn_rel, dtext in rows:
+        if status == "IDENTICAL":
+            continue
+        p(f"### [{cls}] {conn_rel} — {status}\n")
+        if cls == "A":
+            p("> class A (verbatim): classify each hunk template-ahead (apply) "
+              "vs workspace-ahead (preserve).\n")
+        elif cls == "B":
+            p("> class B (customised): ADVISORY — confirm against the rule audit before touching.\n")
+        elif cls == "O":
+            p("> class O (OAuth): customised per provider — ADVISORY.\n")
+        if dtext:
+            p("```diff\n" + dtext + "\n```\n")
+        p("\n")
+
+    sys.stdout.write(buf.getvalue())
+
+
+if __name__ == "__main__":
+    main()
