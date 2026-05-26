@@ -52,7 +52,8 @@ The final workspace must look like this, anchored at `prismeai-workspaces/worksp
 
 **Naming rules**:
 
-- `<slug>` = folder name = workspace slug = lowercased-with-dashes (e.g. `example-service`, `my-saas`)
+- `<slug>` = folder name = workspace slug = lowercased-with-dashes (e.g. `example-service`, `my-saas`). Workspace `name:` (display) can stay literal with spaces/accents — no constraint there.
+- **`app.slug` in `.import.yml` MUST be PascalCase** — no spaces, no hyphens, no suffix like `MCP`/`APP`. Examples: `GoogleDocs`, `GoogleDrive`, `Hubspot`, `SageX3`, `Storage`. NOT `Google Docs`, `Google Drive APP MCP`, `HubspotMCP`, `Sage X3`, `Prismeai Storage`. **The app slug is immutable once published** (the platform rejects republish with a different slug — `Once published, an app slug cannot be updated`), so picking the right form on day one avoids a full delete+republish migration across the whole fleet (mcpApiKey re-issuance + tenant reinstalls). `app.name` (the human-readable label shown in the marketplace UI) is free — keep it literal with spaces if natural (`Google Docs`, `Sage X3`).
 - **Everything except the public App-mode "instructions" must be `private: true`.** That includes the helpers (`buildAppAuth`, `executeApiCall`, `handleApiError`, `formatToolOutput`, `routeToolCall`), the dispatchers (`tool-restOp`, `tool-graphqlOp`, `method-restOp`, `method-graphqlOp`), and the entire `00_MCP/*` set (`mcp`, `generateKey`, `getConfig`, `onInstall`). `private: true` only hides automations from the App's instructions list — it does NOT block `endpoint: true` HTTP webhook access nor event-triggered execution. So the webhook automations (`mcp`, `generateKey`, `getConfig`) stay reachable, and `onInstall` still fires on `workspaces.apps.installed`/`apps.configured`.
 - Public App-mode automations (the "instructions") use the bare operation name (e.g. `getTests.yml`, `createTest.yml`) and are **NOT** `private:`. They stay 1-per-op so tenants can keep calling `<Service>.<operation>:` from their automations.
 
@@ -73,7 +74,9 @@ Run phases sequentially. Pause after each for confirmation when a decision affec
 1. If `$ARGUMENTS` is empty, ask via `AskUserQuestion`:
    - "Quel service SaaS veux-tu intégrer ?"
    - "Quelle est l'URL de la doc de l'API REST (ou GraphQL) ?" (can be skipped if you can find it)
-2. Propose a **slug** (`kebab-case`, used for folder + workspace slug). Confirm with the user before creating the folder.
+2. Propose **two slugs** and confirm both with the user before creating the folder:
+   - **folder/workspace slug** in `kebab-case` (e.g. `google-docs`, `sage-x3`) — used as folder name + workspace `slug:`.
+   - **app slug** in **PascalCase** (e.g. `GoogleDocs`, `SageX3`) — used as `app.slug` in `.import.yml`. **No spaces, no hyphens, no `MCP`/`APP` suffix.** This slug is **immutable once published** on the marketplace; the platform refuses republish under a different slug. Derive `<<SERVICE_SLUG>>` (camelCase) from it by lowercasing the first letter.
 3. Identify the **base URL** of the API (ask if ambiguous — e.g. on-prem vs. cloud, v1 vs. v2). Typical shapes:
    - Cloud SaaS → `https://api.<service>.com/v1` or `https://<service>.cloud.<vendor>.app/api/v2`
    - On-prem → user-provided deployment URL
@@ -127,8 +130,9 @@ Run phases sequentially. Pause after each for confirmation when a decision affec
 
 Templates use `<<PLACEHOLDER>>` syntax. Replace these globally:
 
-- `<<SERVICE_NAME>>` → Human-readable name (e.g. `AcmeCorp`, `MySaas`)
-- `<<SERVICE_SLUG>>` → camelCase slug used in event names (e.g. `acmeCorp`, `mySaas`)
+- `<<SERVICE_NAME>>` → Human-readable display name, may include spaces/accents (e.g. `Acme Corp`, `Google Docs`, `Sage X3`). Used as workspace `name:`, `app.name`, and inside descriptions/messages.
+- `<<APP_SLUG>>` → **PascalCase** app slug used as `app.slug` in `.import.yml` (e.g. `AcmeCorp`, `GoogleDocs`, `SageX3`, `Hubspot`). No spaces, no hyphens, no suffix. **Immutable once published** — see Naming rules.
+- `<<SERVICE_SLUG>>` → camelCase slug used in event names + secret keys + `slug:<...>` cross-workspace URLs (e.g. `acmeCorp`, `googleDocs`, `sageX3`). Derived from `<<APP_SLUG>>` by lowercasing the first letter.
 - `<<WORKSPACE_ID>>` → Prisme.ai workspace ID (e.g. `_gwEr1h`) — only known after the workspace is created on the platform, use a placeholder then update
 - `<<BASE_URL>>` → API base URL
 - `<<LOGO_URL>>` → leave empty: substitute with `''` so `index.yml` ships `photo: ''`. The real `uploads.prisme.ai` URL is set in Phase 6 after the logo file is uploaded to the workspace — never substitute a hotlinked external URL here.
@@ -161,6 +165,33 @@ Templates use `<<PLACEHOLDER>>` syntax. Replace these globally:
     out = {'appSlug': 'MCP Core', 'slug': 'MCP Core', 'config': {'apiKey': '', 'mcpTools': d['config']['value']['mcpTools']}}
     yaml.dump(out, open('imports/MCP Core.yml','w'), sort_keys=False)
     ```
+
+11. **Tenant secret auto-wiring** — mandatory for any connector whose `secrets.schema` contains tenant-sensitive credentials (apiKey, token, password, OAuth client id/secret, etc.). Skip ONLY if the app has zero tenant secrets.
+
+    **Why** — without this step, the tenant admin has to (a) create each secret in the Builder "Secrets" section AND (b) manually wire `{{secret.X}}` into the matching app-instance config field. Most admins don't know this 2-hop pattern. With auto-wiring, the admin only fills the **values** in the Secrets section; everything else is wired by `onInstall.yml` at install time.
+
+    **Pattern** (validated end-to-end on `google-docs` for OAuth + `google-search` for static-token; same mechanism, different secret keys) — chains:
+    ```
+    app-instance config.<configKey> = "{{config.<secretKey>}}"       ← binding A (terminal set: config merge)
+    workspace config.value.<secretKey> = "{{secret.<secretKey>}}"    ← binding B (PATCH /config via workspace JWT)
+    Secrets section: <secretKey> = <real value>                      ← filled by admin
+    → resolution chain: instance {{config.x}} → workspace config.value {{secret.x}} → secret store ✓
+    ```
+
+    **Concrete steps in `automations/onInstall.yml`**:
+    1. After the `mcpEndpoint` set and before the `<<TENANT_SECRET_PROVISION_HOOK>>` marker, insert the block from `templates/fragments/onInstall-tenant-secret-provision.yml`. Repeat the per-secret sub-blocks once per credential listed in `secrets.schema`.
+    2. In the terminal `set: config type: merge` (at the `<<TENANT_SECRET_BINDING_A>>` marker), add `<configKey>: '{{binding<SecretKeyPascal>}}'` for each credential.
+    3. Each secret's `description:` must guide the admin to the source (e.g. URL to vendor console, scopes to enable, where to copy from). The descriptions are the **only** onboarding doc most admins will see.
+
+    **Required Custom Code helpers** (already in the template `imports/Custom-Code.yml`): `makeConfigRef(key)` and `makeSecretRef(key)`. They build the literal binding strings in plain JS — a direct `{{config.x}}` / `{{secret.x}}` in a DSUL set/fetch body resolves to empty at set-time, so the literals MUST go through Custom Code to survive substitution.
+
+    **The block is idempotent** — GET `/security/secrets` first, only PATCH the secrets that don't already exist (admin may have created some manually).
+
+    **Reference implementations**:
+    - **Static-token** (apiKey + optional cx + optional model): `prismeai-workspaces/workspaces/google-search/automations/onInstall.yml`
+    - **OAuth user-delegated** (oauthClientId + oauthClientSecret): `prismeai-workspaces/workspaces/google-docs/automations/onInstall.yml`
+
+    OAuth connectors (Phase 4.5) extend this block — same infrastructure, just two more secrets (`<service>OauthClientId`, `<service>OauthClientSecret`) and two more binding A lines.
 
 ### Phase 4.5 — OAuth2 user-delegated scaffolding (conditional)
 
@@ -198,9 +229,19 @@ Templates use `<<PLACEHOLDER>>` syntax. Replace these globally:
 
 6. **Merge `templates/oauth/fragments/index-config-value.yml`** into `index.yml` under `config.value` (provider URL defaults, `scopes: api`, `refreshTokenTtl: 7200`). **Never** set `oauthClientId` / `oauthClientSecret` at the CENTRAL workspace `config.value` — they're per-tenant and get auto-wired into each TENANT by step 6b, not by the published app's config.value (which doesn't propagate to instances).
 
-6b. **Insert `templates/oauth/fragments/onInstall-provision.yml`** into `automations/onInstall.yml` at the `<<OAUTH_PROVISION_HOOK>>` marker (before the `completed` emit + terminal config merge), AND merge the `makeConfigRef`/`makeSecretRef` Custom Code helpers (Phase 4.5 step 4 fragment). This **fully auto-wires per-tenant OAuth on install** — the tenant admin only fills the secret VALUES in the Builder "Secrets" section. On install onInstall: (1) provisions empty placeholder secrets with descriptions, (2) writes **binding B** into the tenant workspace `config.value.<<SERVICE_SLUG>>OauthClientId: '{{secret.<<SERVICE_SLUG>>OauthClientId}}'` via PATCH `/config`, (3) writes **binding A** into the app-instance config `oauthClientId: '{{config.<<SERVICE_SLUG>>OauthClientId}}'` (added to the terminal `set: config` merge). Resolution chain: instance `{{config.x}}` → workspace config.value `{{secret.x}}` → secret. **The enabling trick**: an automation can't write a literal `{{config.x}}`/`{{secret.x}}` via a plain set/fetch body (DSUL resolves it to empty) — so the literals are built in Custom Code (`makeConfigRef`/`makeSecretRef`) and substituted single-pass (stored intact, resolved at read time). Constraint: everything runs before the terminal `set: config` merge (that merge re-triggers `apps.configured` and ends the run).
+6b. **OAuth tenant secret auto-wiring** — Phase 4 **step 11** already established the universal pattern (provision + binding A/B for every tenant credential). For OAuth, extend that same block with two additional secrets:
+    - `<<SERVICE_SLUG>>OauthClientId` (with description pointing at `<<PROVIDER_APP_URL>>`)
+    - `<<SERVICE_SLUG>>OauthClientSecret` (same)
 
-    ⚠️ **If you scaffolded by copying an existing workspace instead of from these templates, this block is NOT included for free.** Copy `google-docs/automations/onInstall.yml` (the proven implementation) plus its `makeConfigRef`/`makeSecretRef` CC helpers — do NOT copy `google-mail`/`google-sheets`, which lack both. Verify with the Phase 6 smoke-check ("OAuth secret auto-wiring present").
+    And add the matching binding A lines to the terminal `set: config type: merge`:
+    ```yaml
+    oauthClientId: '{{bindingClientId}}'
+    oauthClientSecret: '{{bindingClientSecret}}'
+    ```
+
+    The OAuth provisioning fragment at `templates/oauth/fragments/onInstall-provision.yml` is the same shape as the generic fragment at `templates/fragments/onInstall-tenant-secret-provision.yml`, just pre-filled for the two OAuth keys. **The `makeConfigRef` / `makeSecretRef` Custom Code helpers come from the universal template `templates/imports/Custom-Code.yml`** (added in step 9 of Phase 4) — you don't need the OAuth fragment for them anymore.
+
+    ⚠️ **If you scaffolded by copying an existing workspace** instead of from these templates, verify the universal block IS included (`grep -c secretsProvisioned automations/onInstall.yml` ≥ 1). Reference implementations: `google-search` (static-token + cx + model) and `google-docs` (OAuth). **Do NOT copy `google-mail`/`google-sheets`** — they predate the universal auto-wiring.
 
 7. **Prepend `templates/oauth/fragments/index-mcptools.yml`** to `config.value.mcpTools`: the `disconnect` and `connect` tools MUST be listed first so `tools/list` surfaces them to the LLM. Regenerate `imports/MCP Core.yml` afterwards so it mirrors the new mcpTools array (see Phase 4 step 10).
 

@@ -94,10 +94,14 @@ do:
   - set:
       name: oauthCallbackUrl
       value: '{{global.apiUrl}}/workspaces/slug:<<SERVICE_SLUG>>/webhooks/oauthCallback'
-  # <<OAUTH_PROVISION_HOOK>> — Phase 4.5 (OAuth connectors only) inserts the
-  # secret-provisioning block (templates/oauth/fragments/onInstall-provision.yml)
-  # HERE, before the completed emit + the terminal config merge. Non-OAuth
-  # connectors leave this marker out.
+  # <<TENANT_SECRET_PROVISION_HOOK>> — Phase 4 step 11 inserts the
+  # tenant-secret provisioning + binding A/B block HERE for any connector
+  # that exposes credentials in `secrets.schema` (apiKey / token / OAuth
+  # client id+secret / …). Skip the block ONLY if the app has zero
+  # tenant-sensitive credentials.
+  # OAuth connectors (Phase 4.5) reuse the same block — they just add
+  # `oauthClientId` and `oauthClientSecret` to the list of provisioned
+  # secrets and to the binding A merge below.
   - comment: >-
       The `set: config` merge below is TERMINAL — persisting config re-triggers
       `workspaces.apps.configured`, which ends this run. Any instruction placed
@@ -116,8 +120,11 @@ do:
         mcpApiKey: '{{keyResponse.body.mcpApiKey}}'
         mcpEndpoint: '{{mcpEndpoint}}'
         oauthCallbackUrl: '{{oauthCallbackUrl}}'
-        # <<OAUTH_BINDING_A>> — OAuth connectors (Phase 4.5) ALSO add binding A here,
-        # consuming the makeConfigRef literals built in the provisioning block above:
-        #   oauthClientId: '{{bindingClientId}}'
+        # <<TENANT_SECRET_BINDING_A>> — Phase 4 step 11 adds binding A here for
+        # each tenant credential, consuming the makeConfigRef literals built in
+        # the provisioning block above. Examples:
+        #   apiKey: '{{bindingApiKey}}'            # static-token connector
+        #   token: '{{bindingToken}}'              # PAT-style connector
+        #   oauthClientId: '{{bindingClientId}}'   # OAuth (Phase 4.5)
         #   oauthClientSecret: '{{bindingClientSecret}}'
 output: '{{keyResponse.body.mcpApiKey}}'

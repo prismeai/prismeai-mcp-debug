@@ -73,6 +73,30 @@ config:
         const v = (value === null || value === undefined) ? '' : String(value);
         return { usable: v.length > 0 && v.indexOf('{{') === -1 };
 
+    # Build the literal binding string "{{config.<key>}}" in plain JS so DSUL
+    # never parses it as a token. Used by onInstall (Phase 4 step 11) to write
+    # **binding A** into the app instance config — single-pass substitution
+    # stores the literal, which resolves later against the tenant workspace
+    # config.value (binding B). MANDATORY for any connector with tenant
+    # secrets (static token, PAT, OAuth, …).
+    makeConfigRef:
+      parameters:
+        key:
+          type: string
+      code: |
+        return '{' + '{config.' + key + '}' + '}';
+
+    # Build the literal binding string "{{secret.<key>}}" in plain JS.
+    # Used by onInstall to write **binding B** into the tenant workspace
+    # config.value (the only place {{secret.x}} resolves). MANDATORY companion
+    # to makeConfigRef.
+    makeSecretRef:
+      parameters:
+        key:
+          type: string
+      code: |
+        return '{' + '{secret.' + key + '}' + '}';
+
     # Short non-reversible fingerprint of a credential, used to KEY the session
     # token cache in buildAppAuth (exchange/cached-auth connectors only). When the
     # configured credential changes, the fingerprint changes and the cached access
