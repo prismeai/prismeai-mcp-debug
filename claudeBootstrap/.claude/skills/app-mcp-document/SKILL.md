@@ -30,20 +30,25 @@ description: '<One-line description for SEO>'
 <CardGroup cols={3}>          — 3 top-level feature categories
   <Card icon="..." title="...">...</Card> × 3
 
-## Prerequisites              — account, credentials, base URL
+## Prerequisites              — account, credentials, base URL (two blocks if central OAuth)
+
+## Setup (one-time, platform admin)   — central OAuth connectors only:
+                                       OAuth Application + workspace secrets
+                                       + Governance capability + smoke-test
 
 <Tabs>
   <Tab title="Usage as App">
     ## Installation
-    ## Configuration          — config.schema table
+    ## Configuration          — config.schema table (PAT-only for central OAuth)
     ## Available Instructions — one table per resource category
     ## DSUL Examples          — 3-5 realistic snippets
   </Tab>
 
   <Tab title="Usage as MCP">
     <intro>
-    ## Plug into an Agent Creator capability  — Steps for the new flow
-    ## Legacy MCP Install (Advanced > Tools)  — kept for older agents
+    ## Plug into an Agent Creator capability (central OAuth)  — when applicable
+    ## Tenant PAT                                              — shared token path
+    ## Legacy MCP Install (Advanced > Tools)                   — older agents
     ## Output Formats
     ## Available Tools        — one table per resource category
     ## Tool Details           — deep-dive on 4-6 flagship tools
@@ -55,6 +60,8 @@ description: '<One-line description for SEO>'
 ```
 
 Read `./templates/reference-example.mdx` (bundled with this skill) once before writing anything. It's a verbatim snapshot of the `Gryzzly` connector page and the canonical reference for tone, table layout, and section ordering — **except** for the `Usage as MCP` tab, which now opens with the *Plug into an Agent Creator capability* steps before falling back to the legacy *Advanced > Tools* flow. Always render that Agent Creator section first; use `./templates/connector.mdx` as the authoritative skeleton when the reference page diverges. **Do not append "(2026, …)" or any year/recency qualifier to the section heading** — the docs always describe the current product, so dating the new flow is redundant.
+
+**For central OAuth connectors**, the canonical reference is `apps-store/marketplace/connectors/gitlab.mdx` in the docs repo — it shows the new shape: dual-mode intro paragraph, *Setup (one-time, platform admin)* `<Steps>` block, two MCP sub-tabs (central OAuth + tenant PAT), and the updated *Common Issues* entries (auth required / OAuth config missing / capability not granted / invalid mcp-api-key). Read it once before writing a new central-OAuth connector page.
 
 ---
 
@@ -94,7 +101,8 @@ Read `<workspace>/index.yml` and collect:
 
 Also introspect:
 - `automations/buildAppAuth.yml` → identify the auth mode (static token / Basic / OAuth2 client-credentials / OAuth2 AC) — affects wording of the Prerequisites + Configuration tables.
-- `automations/initiateOAuth.yml` (optional) → if present, document the OAuth flow as an extra step inside the `Usage as App` tab (how tenant admins set it up).
+- `automations/initiateOAuth.yml` (optional) → if present, the connector supports OAuth2 authorization-code. **Since the OAuth-central migration (gitlab pilot, 2026-05-28)** the credentials are NOT tenant-facing anymore: check `secrets.schema` in `index.yml` for `<<SERVICE_SLUG>>OauthClientId` / `<<SERVICE_SLUG>>OauthClientSecret`. If both are declared at the workspace level (and absent from `config.schema`), the connector runs in **central mode** — document it with a dedicated *Setup (one-time, platform admin)* section + a *Plug into an Agent Creator capability (central OAuth)* sub-tab (see the gitlab.mdx reference). If `oauthClientId` is still in `config.schema`, the connector is on the legacy per-tenant model — document it the old way and flag it as a candidate for `/app-mcp-fleet-sync` migration.
+- `automations/mcp.yml` → inspect the two-mode dispatch (`authMode: central` default + `conditions: '{{headers["mcp-api-key"]}}' → authMode: tenant`). Its presence confirms the central model and dictates the *Usage as MCP* structure: two sub-flows (central OAuth without `mcp-api-key`; tenant PAT with the header). Connectors stuck on the legacy single-mode `mcp.yml` get the one-flow MCP tab as before.
 
 ### Phase 3 — Categorize the tools
 
@@ -104,7 +112,7 @@ Default algorithm (Python, inline via Bash):
 1. For each tool `name`, strip the leading verb (`list|get|search|create|update|delete|add|remove|close|reopen|approve|unapprove|merge|cancel|retry|revert|cherryPick|archive|unarchive|fork|stop|invite`).
 2. Map the remaining noun to a category label. Singularize trivially (e.g. `Projects` → `Project`). Multi-word nouns split on camelCase (`IssueNote` → `Issue Note`).
 3. Group related resources together when it feels natural: `Issue` + `IssueNote` → "Issues"; `MergeRequest` + `MergeRequestNote` → "Merge Requests"; `Tag` + `Tagset`.
-4. OAuth-only tools (`connect`, `disconnect`) go at the bottom as an "OAuth Session" sub-section.
+4. OAuth-only tools (`connect`, `disconnect`) go at the bottom as an "OAuth Session" sub-section. **In central mode**, mention that they only show up in `tools/list` when no `mcp-api-key` is passed — the tenant PAT path doesn't expose them.
 
 Print the proposed categorization to the user and ask for confirmation before rendering. Example output:
 
@@ -143,14 +151,37 @@ The user can override by saying "merge X and Y" or "split X into A + B".
      When Phase 4.5 fell back to `iconFallback` (no asset), substitute the empty string — the page renders without a lettrine, and the Font Awesome glyph from the overview card carries the brand. Do NOT inline `<Icon icon="..." />` from Mintlify here: the lettrine is meant as a *visual brand mark*, not a hint glyph. NEVER use a hotlinked URL in the `src=` (same rule as Phase 5.1).
 3. **Auto-generate** the dynamic sections:
    - **Feature cards** (`<<FEATURE_CARDS>>`) — 3 cards. Infer from the top categories; icon is a Mintlify Font Awesome name (e.g. `book`, `diagram-project`, `users`, `clock`, `plug`). Ask the user to review before locking.
-   - **Configuration table** (`<<CONFIG_TABLE>>`) — rendered from `config.schema` non-readOnly fields + the two standard readOnly `MCP Endpoint` / `MCP API Key` rows. OAuth fields get their own section below the main table when present.
+   - **Configuration table** (`<<CONFIG_TABLE>>`) — rendered from `config.schema` non-readOnly fields + the two standard readOnly `MCP Endpoint` / `MCP API Key` rows. **In central OAuth mode**, the schema is intentionally minimal (`baseUrl` + `token` PAT + the two readOnly MCP rows) — do NOT list OAuth client id/secret/urls here. Add a `<Note>` right below the table saying the OAuth credentials live in the central workspace secrets (linked to the *Setup* section). On legacy per-tenant connectors, OAuth fields get their own section below the main table when present.
    - **Instructions tables** (`<<INSTRUCTIONS_TABLES>>`) — one `### CategoryName` + table per category (columns: Instruction, Arguments). Arguments list comes from `inputSchema.properties` minus `outputFormat`. Required args get a `*` suffix.
    - **MCP tools tables** (`<<MCP_TOOLS_TABLES>>`) — same grouping, columns (Tool, Description). Description is the mcpTool's own description, truncated if >100 chars.
 4. **Assisted-generate** the remaining sections — present a draft to the user, let them refine:
-   - **Prerequisites** (`<<PREREQUISITES>>`) — bullet list with account type, credentials source (UI path at the provider), base URL. Infer from `config.schema` descriptions + `oauthClientId` description (which already contains the provider app URL, captured at scaffold time in `/app-mcp-implement` Phase 1).
+   - **Prerequisites** (`<<PREREQUISITES>>`) — bullet list with account type, credentials source (UI path at the provider), base URL.
+     - **Central OAuth connectors** — describe TWO prerequisites blocks (central OAuth and tenant PAT) and the trade-off between them; reference `<<SERVICE_SLUG>>OauthClient*` secrets + the `<api-url>/workspaces/slug:<<SERVICE_SLUG>>/webhooks/oauthCallback` redirect URI. Pull the provider's OAuth-app management page URL from the secret description (captured at scaffold time in `/app-mcp-implement` Phase 1).
+     - **Legacy per-tenant connectors** — infer from `config.schema` descriptions + the `oauthClientId` description (which already contains the provider app URL).
+   - **Setup (one-time, platform admin)** — new section for central OAuth connectors only. A `<Steps>` block covering, in order:
+     1. **Register the OAuth Application at the provider** with the unique redirect URI `<api-url>/workspaces/slug:<<SERVICE_SLUG>>/webhooks/oauthCallback` and the right scopes.
+     2. **Store the `Client ID` + `Client Secret` in the central workspace's Secrets** (`<<SERVICE_SLUG>>OauthClientId` / `<<SERVICE_SLUG>>OauthClientSecret`).
+     3. **Declare the OAuth authentication in Governance** — under the connector's Capability, attach an auth-config JSON with the three central webhooks:
+
+        ````
+        ```json
+        {
+          "type": "oauth2",
+          "status_url": "<api-url>/workspaces/slug:<<SERVICE_SLUG>>/webhooks/checkAuthStatus",
+          "connect_url": "<api-url>/workspaces/slug:<<SERVICE_SLUG>>/webhooks/initiateOAuth",
+          "disconnect_url": "<api-url>/workspaces/slug:<<SERVICE_SLUG>>/webhooks/disconnectOAuth"
+        }
+        ```
+        ````
+
+        These three URLs come from the matching `automations/{checkAuthStatus,initiateOAuth,disconnectOAuth}.yml` (all `when: endpoint: true`). Document `<api-url>` as a placeholder for the production API URL (`https://api.studio.prisme.ai/v2`); do not enumerate non-production environments in the public docs.
+     4. **Grant the capability to the right roles** in Governance — without this, central-mode callers get `401 Authentication required`.
+     5. **Smoke-test** — call any data tool from an agent that has the capability; expect a `connect_url` on the first call, then transparent reuse.
+
+     Place this section between *Prerequisites* and the `<Tabs>` block so it's visible before the App / MCP split. Skip entirely for legacy per-tenant connectors.
    - **DSUL examples** (`<<DSUL_EXAMPLES>>`) — 3-4 realistic snippets covering a read, a create, a compound flow, and a flagship action. Use real tool names and plausible argument values (`'{{var}}'` placeholders allowed).
    - **Tool Details** (`<<TOOL_DETAILS>>`) — deep-dive on 4-6 flagship MCP tools (usually the creates + a signature search/list). For each: JSON call example + a parameters table (Required / Description). Pull required/description from `inputSchema`.
-   - **Error Handling table** (`<<ERROR_HANDLING_TABLE>>`) — HTTP codes typical for the API (401 / 403 / 404 / 422 / 429 / 500 usually suffice) + 2-4 "Common Issues" paragraphs (generic: "Not configured" / "Invalid API key (MCP)" / "Credentials lookup failed" + one service-specific gotcha). Adapt the provider-name references.
+   - **Error Handling table** (`<<ERROR_HANDLING_TABLE>>`) — HTTP codes typical for the API (401 / 403 / 404 / 422 / 429 / 500 usually suffice) + 2-4 "Common Issues" paragraphs. For **central OAuth connectors**, include four canonical entries: `"Authentication required: please sign in to Prisme.ai before calling the <Service> MCP without an mcp-api-key header"` (anonymous call to central), `"Central OAuth config missing"` (secrets not set by the admin), `"<Service> capability not granted"` (Governance not configured for this user), `"Invalid mcp-api-key"` (tenant mode signature mismatch). For **legacy per-tenant** connectors keep the older entries (`Not configured` / `Invalid API key` / `Credentials lookup failed`). Always add one service-specific gotcha at the end.
 5. **External Resources** (`<<EXTERNAL_RESOURCES>>`) — two cards: API docs (link is `<<API_DOCS_URL>>` from phase 1) and "Tool Agents" (constant link `/create-agents/tool-agents/overview`).
 
 Write to `<docs-repo>/apps-store/marketplace/connectors/<slug>.mdx`. **Never** overwrite an existing file silently — if it exists, `AskUserQuestion`: overwrite / merge / abort.
