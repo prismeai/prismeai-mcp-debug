@@ -1,12 +1,7 @@
 slug: checkAuthStatus
 name: 00_OAuth/checkAuthStatus
-description: >-
-  Return the connection status for the current user. Tries, in order:
-    1. `?mcpApiKey=` query param (decoded → tenantId)
-    2. `?tenantId=` query param
-    3. `user.<<SERVICE_SLUG>>.oauth.tenantId` (fallback when caller doesn't
-       know the tenantId but the user already has an active session).
-  Returns { connected, expiresAt, authMethod, scopes, tenantId }.
+description: |-
+  Return the central OAuth connection status for the current user. No query params required — the central scope is shared by all callers. Returns { connected, expiresAt, authMethod, scopes, scope }.
 private: true
 when:
   endpoint: true
@@ -27,51 +22,17 @@ do:
               connected: false
               error: Authentication required.
         - break: {}
-
-  - comment: Resolve tenantId from available sources
+  - set:
+      name: scope
+      value: central
+  - comment: Verify the session matches the central scope + secret still exists
   - conditions:
-      '{{query.mcpApiKey}}':
-        - Custom Code.run:
-            function: verifyAndDecodeKey
-            parameters:
-              apiKey: '{{query.mcpApiKey}}'
-              secret: '{{config.appSecret}}'
-            output: decoded
-        - conditions:
-            '{{decoded.error}}':
-              - set:
-                  name: $http
-                  value:
-                    status: 400
-              - set:
-                  name: output
-                  value:
-                    error: 'Invalid mcpApiKey: {{decoded.error}}'
-              - break: {}
-        - set:
-            name: tenantId
-            value: '{{decoded.workspaceId}}'
-      '{{query.tenantId}}':
-        - set:
-            name: tenantId
-            value: '{{query.tenantId}}'
-      '{{user.<<SERVICE_SLUG>>.oauth.tenantId}}':
-        - comment: No query params — fall back to stored session tenantId
-        - set:
-            name: tenantId
-            value: '{{user.<<SERVICE_SLUG>>.oauth.tenantId}}'
-      default:
-        - comment: No session, no query — return disconnected (200, not 400, to let frontend render cleanly)
-        - break: {}
-
-  - comment: Verify the session is for this tenant + secret still exists
-  - conditions:
-      '{{user.<<SERVICE_SLUG>>.oauth.authMethod}} == "delegated" && {{user.<<SERVICE_SLUG>>.oauth.tenantId}} == {{tenantId}}':
+      '{{user.<<SERVICE_SLUG>>.oauth.authMethod}} == "delegated" && {{user.<<SERVICE_SLUG>>.oauth.scope}} == "central"':
         - run:
             module: secrets
             function: get
             parameters:
-              name: delegated_token_{{tenantId}}
+              name: delegated_token_{{scope}}
               scope: user
             output: tokenRef
         - conditions:
@@ -84,5 +45,5 @@ do:
                     expiresAt: '{{user.<<SERVICE_SLUG>>.oauth.expiresAt}}'
                     scopes: '{{user.<<SERVICE_SLUG>>.oauth.scopes}}'
                     connectedAt: '{{user.<<SERVICE_SLUG>>.oauth.connectedAt}}'
-                    tenantId: '{{tenantId}}'
+                    scope: central
 output: '{{output}}'

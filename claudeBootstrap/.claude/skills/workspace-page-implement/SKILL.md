@@ -57,6 +57,32 @@ Treat each bullet as a checklist item when bootstrapping a new app.
 6. **`pages/*.yml` (DSUL Pages) is deprecated** — don't create new ones. The
    `pages/` directory is now reserved for `pages/<appName>/` subfolders. See
    [[feedback_dsul_pages_yml_deprecated]].
+7. **The bundle key in `config.value.bundles` MUST equal the workspace slug**.
+   The Studio routes `/apps/<X>` by looking up `config.value.bundles[<X>]`
+   where `<X>` is the workspace slug — an arbitrary key (e.g.
+   `connector-callback` on a workspace whose slug is `gitlab`) yields
+   "L'application X n'existe pas ou a été dépubliée". Local folder name
+   `pages/<appName>/` is decoupled from the bundle key — the asymmetry is
+   intentional. **For multi-app workspaces, the platform currently exposes
+   only ONE bundle per workspace** : route different views via `?status=`,
+   `?view=`, or `?screen=` query params inside the single bundle, not
+   separate `bundles.X` entries.
+8. **Tailwind `dark:` classes are no-ops in the Studio AppRenderer** — the
+   renderer does NOT toggle a `dark` class on `<html>` / `<body>`, so the
+   default `darkMode: 'media'` of starter-spa's `tailwind.config.js`
+   never activates. For dark-mode-aware UI, inject a `<style>` block in
+   a `useEffect` with CSS custom properties gated by
+   `@media (prefers-color-scheme: dark)` (the same technique embed.css uses
+   — see Phase 9). Avoid `bg-X dark:bg-Y` on the root wrapper too : if the
+   app is rendered inside a Studio shell, a full-bleed background paints a
+   visible frame around the content in the host's theme. Let the host
+   provide the page background ; only style the card itself.
+9. **Localize via `navigator.language`** when the app surfaces user-facing
+   strings. Detection walks `navigator.languages` then falls back to
+   `navigator.language` and finally to a hard default (usually `en`).
+   Strings live in `MESSAGES: Record<Locale, Messages>` ; the component
+   reads `MESSAGES[detectLocale()]`. Pattern from
+   `pages/connector-callback/src/App.tsx` in workspace `gitlab` (sandbox).
 
 ---
 

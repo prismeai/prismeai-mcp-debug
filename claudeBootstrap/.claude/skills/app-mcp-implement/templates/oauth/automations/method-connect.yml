@@ -1,40 +1,39 @@
 slug: method-connect
 name: /03_Methods/method-connect
-description: >-
-  Build a connect URL so the user can authorize <<SERVICE_NAME>> access with their own
-  account. Returns a `connector_auth_required` structured payload that the
-  frontend recognizes and renders as an OAuth connect card.
+description: Build a connect URL so the user can authorize <<SERVICE_NAME>> access with their own account. Central OAuth mode only. Returns a `connector_auth_required` structured payload that the frontend recognizes and renders as an OAuth connect card.
 private: true
 arguments:
   tenantId:
     type: string
+  scope:
+    type: string
   tenantConfig:
     type: object
-  mcpApiKey:
+  authMode:
     type: string
 do:
+  - conditions:
+      '{{authMode}} != "central"':
+        - set:
+            name: output
+            value:
+              error: The `connect` tool is only available in central OAuth mode (call the MCP endpoint without an `mcp-api-key` header).
+        - break: {}
   - conditions:
       '!{{tenantConfig.oauth.clientId}}':
         - set:
             name: output
             value:
-              error: >-
-                No OAuth provider is configured for this <<SERVICE_NAME>> app instance.
-                Administrator must set oauthClientId + oauthClientSecret in
-                the app config before users can connect their own account.
+              error: No central OAuth provider configured for <<SERVICE_NAME>>. A workspace admin must set the secrets `<<SERVICE_SLUG>>OauthClientId` and `<<SERVICE_SLUG>>OauthClientSecret` on the service workspace.
         - break: {}
-  - comment: >-
-      Short-circuit when the user is already connected for this tenant — the
-      LLM's cached tool registry may still expose `connect`. If it calls
-      connect anyway, return an "already connected" no-op so it routes to
-      data tools on the next turn.
+  - comment: Short-circuit when the user is already connected for this scope — the LLM's cached tool registry may still expose `connect` from an earlier tools/list. If it calls connect anyway, return an "already connected" no-op so it routes to data tools on the next turn.
   - conditions:
-      '{{user.<<SERVICE_SLUG>>.oauth.authMethod}} == "delegated" && {{user.<<SERVICE_SLUG>>.oauth.tenantId}} == {{tenantId}}':
+      '{{user.<<SERVICE_SLUG>>.oauth.authMethod}} == "delegated" && {{user.<<SERVICE_SLUG>>.oauth.scope}} == {{scope}}':
         - run:
             module: secrets
             function: get
             parameters:
-              name: delegated_token_{{tenantId}}
+              name: delegated_token_{{scope}}
               scope: user
             output: accessTokenRef
         - conditions:
@@ -44,29 +43,25 @@ do:
                   value:
                     operation: action
                     itemType: <<SERVICE_NAME>> connection
-                    message: >-
-                      You are already connected to <<SERVICE_NAME>> for this workspace (scope: {{user.<<SERVICE_SLUG>>.oauth.scopes}}).
-                      No action needed — call the data tools directly.
+                    message: 'You are already connected to <<SERVICE_NAME>> (scope: {{user.<<SERVICE_SLUG>>.oauth.scopes}}). No action needed — call the data tools directly (listProjects, getIssue, listMergeRequests, …).'
                     structuredData:
                       alreadyConnected: true
-                      tenantId: '{{tenantId}}'
+                      scope: '{{scope}}'
                       authMethod: delegated
                       connectedAt: '{{user.<<SERVICE_SLUG>>.oauth.connectedAt}}'
               - break: {}
   - set:
       name: connectUrl
-      value: '{{global.apiUrl}}/workspaces/slug:<<SERVICE_SLUG>>/webhooks/initiateOAuth?mcpApiKey={{mcpApiKey}}'
+      value: '{{global.apiUrl}}/workspaces/slug:<<SERVICE_SLUG>>/webhooks/initiateOAuth'
   - set:
       name: output
       value:
         operation: action
         itemType: <<SERVICE_NAME>> connection
-        message: >-
-          Open this URL to authorize <<SERVICE_NAME>> access with your own account:
-          {{connectUrl}}
+        message: 'Open this URL to authorize <<SERVICE_NAME>> access with your own account: {{connectUrl}}'
         structuredData:
           type: connector_auth_required
-          catalog_id: connector-<<SERVICE_KEBAB>>
+          catalog_id: connector-<<SERVICE_SLUG>>
           name: <<SERVICE_NAME>>
           auth_type: oauth2
           connect_url: '{{connectUrl}}'

@@ -1,66 +1,49 @@
 slug: ensureAuthentication
 name: /01_Helpers/ensureAuthentication
-description: >-
-  Resolve an access token for the current MCP tool call, scoped to a specific
-  tenant. Priority order:
-    1. User OAuth session for this tenant (auto-refresh expired tokens)
-    2. Tenant static PAT (`tenantConfig.accessToken`)
-    3. Tenant OAuth provider configured but no session → needsConnect
-    4. Nothing → error
-  Returns { authenticated, accessToken, baseUrl, authMethod } or
-  { authenticated: false, needsConnect, message }.
+description: |-
+  Resolve an access token for the current MCP tool call.
+   - CENTRAL mode (authMode=central, scope=central): user-delegated OAuth shared by the service workspace. Tries the stored access_token first, falls back to refresh; on failure → needsConnect.
+   - TENANT mode (authMode=tenant, scope=tenant_<id>): static PAT from tenantConfig.accessToken. No OAuth.
+  Returns { authenticated, accessToken, baseUrl, authMethod } or { authenticated: false, needsConnect, message }.
 private: true
 arguments:
   tenantId:
     type: string
-    description: Workspace ID of the tenant that owns the app instance.
+    description: '"central" in CENTRAL mode, the tenant workspaceId in TENANT mode.'
+  scope:
+    type: string
+    description: Secret-store scope key. "central" in CENTRAL mode, "tenant_<id>" in TENANT mode.
+  authMode:
+    type: string
+    description: '"central" or "tenant".'
   tenantConfig:
     type: object
-    description: Tenant config fetched from getConfig webhook.
+    description: Tenant config (accessToken + oauth block).
 do:
   - set:
       name: effectiveBaseUrl
       value: '{% {{tenantConfig.baseUrl}} || "<<BASE_URL>>" %}'
-
-  - comment: >-
-      Default: nothing configured. Each priority block below overrides `output`
-      only when its condition matches. No `break` is used — instead, later
-      priorities are gated by `!{{output}}` so they become no-ops once a prior
-      branch has resolved auth.
   - set:
       name: output
       value:
         authenticated: false
         needsConnect: false
-        message: >-
-          This <<SERVICE_NAME>> app instance is not configured. The administrator must
-          set either a static token or an OAuth provider.
+        message: <<SERVICE_NAME>> is not configured. Workspace admin must set either a tenant PAT or the central OAuth secrets.
   - set:
       name: resolved
       value: false
-
-  - comment: >-
-      'Priority 1: user has an OAuth session for this tenant.'
-      Strategy: try fetching the stored access_token secret FIRST. If it
-      exists, use it directly — no refresh. Only attempt refresh if the
-      secret is genuinely missing. This handles providers that don't
-      issue refresh tokens and don't return expires_in (e.g. Monday) —
-      their tokens stay valid until the user uninstalls the app and must
-      be reused as-is. If refresh ALSO fails, wipe user.<<SERVICE_SLUG>>.oauth
-      so that Priority 2 (tenant PAT) can take over instead of forcing a
-      reconnect when a PAT is configured.
+  - comment: 'Priority 1: CENTRAL mode — user-delegated OAuth. Try stored access_token first; fall back to refresh if missing.'
   - conditions:
-      '!{{resolved}} && {{user.<<SERVICE_SLUG>>.oauth.authMethod}} == "delegated" && {{user.<<SERVICE_SLUG>>.oauth.tenantId}} == {{tenantId}}':
+      '!{{resolved}} && {{authMode}} == "central" && {{user.<<SERVICE_SLUG>>.oauth.authMethod}} == "delegated" && {{user.<<SERVICE_SLUG>>.oauth.scope}} == "central"':
         - run:
             module: secrets
             function: get
             parameters:
-              name: delegated_token_{{tenantId}}
+              name: delegated_token_{{scope}}
               scope: user
             output: accessTokenRef
         - conditions:
             '!{{accessTokenRef.error}}':
-              - comment: Stored token exists — use it directly (no refresh needed)
               - set:
                   name: output
                   value:
@@ -72,18 +55,13 @@ do:
                   name: resolved
                   value: true
             default:
-              - comment: Secret missing — try refresh
               - refreshOAuthToken:
-                  tenantId: '{{tenantId}}'
+                  scope: '{{scope}}'
                   tenantConfig: '{{tenantConfig}}'
                   output: refreshResult
               - conditions:
                   '{{refreshResult.error}}':
-                    - comment: >-
-                        Refresh failed too. Clear stale oauth state so the
-                        user can fall through to tenant PAT (Priority 2)
-                        instead of being forced to reconnect when a
-                        configured PAT would work.
+                    - comment: Refresh failed — clear stale oauth state so the user is prompted to reconnect cleanly.
                     - delete:
                         name: user.<<SERVICE_SLUG>>.oauth
                   default:
@@ -97,10 +75,9 @@ do:
                     - set:
                         name: resolved
                         value: true
-
-  - comment: 'Priority 2: tenant has a static PAT → use it'
+  - comment: 'Priority 2: TENANT mode — static PAT'
   - conditions:
-      '!{{resolved}} && {{tenantConfig.accessToken}}':
+      '!{{resolved}} && {{authMode}} == "tenant" && {{tenantConfig.accessToken}}':
         - set:
             name: output
             value:
@@ -111,18 +88,27 @@ do:
         - set:
             name: resolved
             value: true
-
-  - comment: 'Priority 3: tenant has OAuth provider configured → prompt OAuth'
+  - comment: 'Priority 3: CENTRAL mode — OAuth configured but user not connected → prompt connect'
   - conditions:
-      '!{{resolved}} && {{tenantConfig.oauth.clientId}}':
+      '!{{resolved}} && {{authMode}} == "central" && {{tenantConfig.oauth.clientId}}':
         - set:
             name: output
             value:
               authenticated: false
               needsConnect: true
-              message: >-
-                <<SERVICE_NAME>> is not connected for this user. Authorize access with
-                your own <<SERVICE_NAME>> account to continue.
+              message: <<SERVICE_NAME>> is not connected for this user. Authorize access with your own <<SERVICE_NAME>> account to continue.
+        - set:
+            name: resolved
+            value: true
+  - comment: 'Priority 4: TENANT mode — no PAT configured → explicit error'
+  - conditions:
+      '!{{resolved}} && {{authMode}} == "tenant"':
+        - set:
+            name: output
+            value:
+              authenticated: false
+              needsConnect: false
+              message: This <<SERVICE_NAME>> tenant has no Personal Access Token configured. Set the workspace secret `<<SERVICE_SLUG>>Token` to enable tenant PAT mode, or call the MCP endpoint without `mcp-api-key` to use central OAuth.
         - set:
             name: resolved
             value: true

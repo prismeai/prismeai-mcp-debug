@@ -1,28 +1,26 @@
 slug: disconnectOAuth
 name: 00_OAuth/disconnectOAuth
-description: >-
-  Revoke the current user's OAuth tokens and delete the user-scoped secrets.
-  Works as both:
-    - A webhook endpoint (called by the frontend connect card's "Disconnect"
-      button — identifies tenant via ?mcpApiKey= or session.mcpApiKey).
-    - An internal automation (called by method-disconnect with tenantId +
-      tenantConfig args).
+description: |-
+  Revoke the current user's OAuth tokens and delete the user-scoped secrets. Works as both:
+    - A webhook endpoint (called by the frontend connect card's "Disconnect" button — uses the central scope).
+    - An internal automation (called by method-disconnect with scope + tenantConfig args).
 private: true
 when:
   endpoint: true
 arguments:
   tenantId:
     type: string
+  scope:
+    type: string
   tenantConfig:
     type: object
 do:
-  # ---------------- Resolve tenantId + tenantConfig ----------------
   - conditions:
-      '{{tenantId}}':
+      '{{scope}}':
         - comment: Internal call — use args directly
         - set:
-            name: effectiveTenantId
-            value: '{{tenantId}}'
+            name: effectiveScope
+            value: '{{scope}}'
         - set:
             name: effectiveTenantConfig
             value: '{{tenantConfig}}'
@@ -30,68 +28,44 @@ do:
             name: isWebhook
             value: false
       default:
-        - comment: Webhook call — resolve from mcpApiKey (query, header, or session)
+        - comment: Webhook call — default to central scope; OAuth config from this workspace's config.value
         - set:
             name: isWebhook
             value: true
-        - set:
-            name: apiKey
-            value: '{% {{query.mcpApiKey}} || {{headers["mcp-api-key"]}} || {{session.mcpApiKey}} %}'
         - conditions:
-            '!{{apiKey}}':
+            '!{{user.id}}':
               - set:
                   name: $http
                   value:
-                    status: 400
+                    status: 401
               - set:
                   name: output
-                  value: 'Missing mcpApiKey (not in query, headers, or session).'
-              - break: {}
-        - Custom Code.run:
-            function: verifyAndDecodeKey
-            parameters:
-              apiKey: '{{apiKey}}'
-              secret: '{{config.appSecret}}'
-            output: decoded
-        - conditions:
-            '{{decoded.error}}':
-              - set:
-                  name: $http
-                  value:
-                    status: 400
-              - set:
-                  name: output
-                  value: 'Invalid mcpApiKey: {{decoded.error}}'
+                  value: Authentication required. Please log in to Prisme.ai first.
               - break: {}
         - set:
-            name: effectiveTenantId
-            value: '{{decoded.workspaceId}}'
-        - fetch:
-            url: '{{decoded.getConfigUrl}}'
-            method: GET
-            output: credResp
-            outputMode: detailed_response
-            emitErrors: false
+            name: effectiveScope
+            value: central
         - set:
             name: effectiveTenantConfig
-            value: '{{credResp.body}}'
-
-  # ---------------- Revoke at provider + delete secrets ----------------
+            value:
+              oauth:
+                clientId: '{{config.oauthClientId}}'
+                clientSecret: '{{config.oauthClientSecret}}'
+                revocationUrl: '{{config.revocationUrl}}'
   - run:
       module: secrets
       function: get
       parameters:
-        name: delegated_token_{{effectiveTenantId}}
+        name: delegated_token_{{effectiveScope}}
         scope: user
       output: accessTokenRef
   - run:
       module: secrets
       function: get
       parameters:
-        name: refresh_token_{{effectiveTenantId}}
+        name: refresh_token_{{effectiveScope}}
         scope: user
       output: refreshTokenRef
-
   - conditions:
       '!{{accessTokenRef.error}} && {{effectiveTenantConfig.oauth.revocationUrl}} && {{effectiveTenantConfig.oauth.clientId}}':
         - try:
@@ -124,14 +98,13 @@ do:
                     token_type_hint: refresh_token
                   emitErrors: false
             catch: []
-
   - try:
       do:
         - run:
             module: secrets
             function: delete
             parameters:
-              name: delegated_token_{{effectiveTenantId}}
+              name: delegated_token_{{effectiveScope}}
               scope: user
       catch: []
   - try:
@@ -140,31 +113,27 @@ do:
             module: secrets
             function: delete
             parameters:
-              name: refresh_token_{{effectiveTenantId}}
+              name: refresh_token_{{effectiveScope}}
               scope: user
       catch: []
-
   - delete:
       name: user.<<SERVICE_SLUG>>.oauth
-
-  - comment: >-
-      Bump user.connectorsVersion so per-user connector caches upstream can
-      invalidate and re-check the now-disconnected state.
+  - comment: Bump user.connectorsVersion so per-user connector caches upstream can invalidate and re-check the now-disconnected state.
   - set:
       name: user.connectorsVersion
       scope: user
       value: '{{run.date}}'
-
   - emit:
       event: <<SERVICE_SLUG>>.oauth.disconnected
       payload:
         userId: '{{user.id}}'
-        tenantId: '{{effectiveTenantId}}'
-
-  # ---------------- Response ----------------
+        scope: '{{effectiveScope}}'
   - conditions:
       '{{isWebhook}}':
-        - comment: Webhook — return a simple HTML page that closes the popup
+        - comment: Webhook — redirect to the SPA which renders the disconnected card + auto-close
+        - set:
+            name: studioHostname
+            value: '{% replace(URL({{global.apiUrl}}).hostname, "api.", "") %}'
         - set:
             name: $http
             value:
@@ -172,14 +141,11 @@ do:
                 Content-Type: text/html
         - set:
             name: output
-            value: >-
-              <html><head><title>Disconnected</title></head><body
-              style="font-family:sans-serif;max-width:420px;margin:60px auto;padding:24px;border:1px solid #e8eaed;border-radius:8px;text-align:center;"><h2>Disconnected</h2><p><<SERVICE_NAME>>
-              session cleared. You can close this window.</p><script>try{if(window.opener){window.opener.postMessage({type:"connector_auth_complete",catalog_id:"connector-<<SERVICE_KEBAB>>",status:"disconnected"},"*");setTimeout(function(){window.close();},400);}}catch(e){}</script></body></html>
+            value: <html><head><meta http-equiv="refresh" content="0;url=https://{{studioHostname}}/apps/<<SERVICE_SLUG>>?status=disconnected&catalog_id=connector-<<SERVICE_SLUG>>"><title>Disconnected</title></head><body><p>Disconnecting…</p></body></html>
       default:
         - set:
             name: output
             value:
               disconnected: true
-              tenantId: '{{effectiveTenantId}}'
+              scope: '{{effectiveScope}}'
 output: '{{output}}'

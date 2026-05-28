@@ -1,46 +1,15 @@
-# Fragment to MERGE into index.yml under config.schema
-# Adds the OAuth2 provider fields that each tenant can fill in their app
-# instance config. clientId/clientSecret are per-tenant — never set them at
-# config.value level on the central workspace.
-
-oauthClientId:
-  type: string
-  title: OAuth2 Client ID
-  description: '<<SERVICE_NAME>> OAuth Application Client ID. Create an OAuth application at <<PROVIDER_APP_URL>> and paste its Application ID here. Set the redirect URI to the value shown in "OAuth Callback URL" below.'
-
-oauthClientSecret:
-  type: string
-  title: OAuth2 Client Secret
-  description: '<<SERVICE_NAME>> OAuth Application Client Secret (shown once on the application page at <<PROVIDER_APP_URL>>).'
-  secret: true
-
-oauthCallbackUrl:
-  type: string
-  title: OAuth Callback URL
-  description: Copy this URL into the "Redirect URI" field of your OAuth application on the provider. Auto-generated on install.
-  readOnly: true
-
-authorizationUrl:
-  type: string
-  title: OAuth Authorize URL
-  description: "Default <<PROVIDER_AUTHORIZE_URL>>"
-
-tokenUrl:
-  type: string
-  title: OAuth Token URL
-  description: "Default <<PROVIDER_TOKEN_URL>>"
-
-revocationUrl:
-  type: string
-  title: OAuth Revoke URL
-  description: "Default <<PROVIDER_REVOKE_URL>>"
-
-scopes:
-  type: string
-  title: OAuth Scopes
-  description: "Space-separated scopes. Default: api"
-
-refreshTokenTtl:
-  type: number
-  title: Refresh Token TTL (seconds)
-  description: "Default: 7200 (2h)"
+# DEPRECATED — OAuth centralisé.
+#
+# Avec le nouveau modèle, les credentials OAuth (clientId/Secret/urls/scopes)
+# vivent dans les SECRETS du workspace de service (cf. index-secrets-schema.yml)
+# et sont câblés via index-config-value.yml. Ils ne sont PLUS exposés dans
+# config.schema de l'App publiée : il n'y a plus rien à templater ici.
+#
+# Le `.import.yml` config.schema n'a donc QUE :
+#   - baseUrl (déjà dans templates/index.yml)
+#   - token (PAT statique, déjà dans templates/index.yml)
+#   - mcpEndpoint, mcpApiKey (readOnly, déjà dans templates/index.yml)
+#
+# Ce fichier est conservé pour signaler explicitement le changement aux runs
+# antérieurs qui auraient mergé l'ancien contenu. À supprimer du scaffold
+# Phase 4.5 dans une prochaine itération.

@@ -1,10 +1,6 @@
 slug: oauthCallback
 name: 00_OAuth/oauthCallback
-description: >-
-  Handle OAuth2 callback from <<SERVICE_NAME>>. Validates state CSRF, looks up the
-  tenant's OAuth config (stored in pending from initiateOAuth), exchanges the
-  code for tokens using the tenant's OAuth client, then stores the result as
-  tenant-prefixed user-scoped secrets.
+description: Handle OAuth2 callback from <<SERVICE_NAME>> (central mode). Validates state CSRF, reads the central OAuth config from this workspace's config.value, exchanges the code for tokens, then stores them in user-scope secrets under the `central` scope.
 private: true
 when:
   endpoint: true
@@ -47,9 +43,7 @@ do:
                       Content-Type: text/html
               - set:
                   name: output
-                  value: >-
-                    <html><head><meta http-equiv="refresh"
-                    content="0;url={{redirectTo}}?status=error&catalog_id=connector-<<SERVICE_KEBAB>>&error={{query.error}}"></head></html>
+                  value: <html><head><meta http-equiv="refresh" content="0;url={{redirectTo}}?status=error&catalog_id=connector-<<SERVICE_SLUG>>&error={{query.error}}"></head></html>
               - break: {}
         - set:
             name: $http
@@ -59,31 +53,24 @@ do:
             name: output
             value: '<<SERVICE_NAME>> OAuth error: {{query.error}} — {{query.error_description}}'
         - break: {}
-
-  - comment: Fetch tenant OAuth config (need clientSecret for exchange)
+  - comment: Read central OAuth config from this workspace's config.value (sourced from workspace secrets)
   - set:
-      name: tenantId
-      value: '{{user.<<SERVICE_SLUG>>.oauthPending.tenantId}}'
-  - fetch:
-      url: '{{user.<<SERVICE_SLUG>>.oauthPending.getConfigUrl}}'
-      method: GET
-      output: credResponse
-      outputMode: detailed_response
-      emitErrors: false
+      name: tenantOAuth
+      value:
+        clientId: '{{config.oauthClientId}}'
+        clientSecret: '{{config.oauthClientSecret}}'
+        tokenUrl: '{{config.tokenUrl}}'
+        refreshTokenTtl: '{{config.refreshTokenTtl}}'
   - conditions:
-      '{{credResponse.status}} != 200 || !{{credResponse.body.oauth.clientId}}':
+      '!{{tenantOAuth.clientId}}':
         - set:
             name: $http
             value:
-              status: 400
+              status: 500
         - set:
             name: output
-            value: 'Tenant OAuth config no longer available. Admin may have removed it.'
+            value: Central OAuth config missing. A workspace admin must set the secrets `<<SERVICE_SLUG>>OauthClientId` and `<<SERVICE_SLUG>>OauthClientSecret`.
         - break: {}
-  - set:
-      name: tenantOAuth
-      value: '{{credResponse.body.oauth}}'
-
   - comment: Exchange authorization code for tokens
   - fetch:
       method: POST
@@ -110,15 +97,17 @@ do:
             name: output
             value: 'Token exchange failed: {{tokenResponse.error}} — {{tokenResponse.error_description}}'
         - break: {}
-
-  - comment: Clean any previous tokens for this tenant (fresh connection)
+  - set:
+      name: scope
+      value: central
+  - comment: Clean any previous tokens for this scope (fresh connection)
   - try:
       do:
         - run:
             module: secrets
             function: delete
             parameters:
-              name: delegated_token_{{tenantId}}
+              name: delegated_token_{{scope}}
               scope: user
       catch: []
   - try:
@@ -127,28 +116,19 @@ do:
             module: secrets
             function: delete
             parameters:
-              name: refresh_token_{{tenantId}}
+              name: refresh_token_{{scope}}
               scope: user
       catch: []
-
-  - comment: >-
-      Normalize expires_in. Some providers (e.g. Monday) don't return
-      this field — tokens are permanent until app uninstall. Default to
-      10 years (315360000 seconds) when absent so the secret stays in
-      the store indefinitely and the stored expiresAt never looks bogus.
-      Without this, `{{tokenResponse.expires_in}} * 1000` yields NaN,
-      expiresAt is an invalid date, and ensureAuthentication's session
-      check wrongly treats the session as expired on every call.
+  - comment: Normalize expires_in. Some providers don't return this field — tokens are then permanent. Default to 10 years (315360000 s) when absent so the secret stays in the store indefinitely and the stored expiresAt is a real date (not NaN).
   - set:
       name: effectiveExpiresIn
       value: '{% {{tokenResponse.expires_in}} || 315360000 %}'
-
   - comment: Store access_token (TTL = effectiveExpiresIn)
   - run:
       module: secrets
       function: set
       parameters:
-        name: delegated_token_{{tenantId}}
+        name: delegated_token_{{scope}}
         value: '{{tokenResponse.access_token}}'
         scope: user
         ttl: '{{effectiveExpiresIn}}'
@@ -159,11 +139,10 @@ do:
             module: secrets
             function: set
             parameters:
-              name: refresh_token_{{tenantId}}
+              name: refresh_token_{{scope}}
               value: '{{tokenResponse.refresh_token}}'
               scope: user
               ttl: '{% {{tenantOAuth.refreshTokenTtl}} || 7200 %}'
-
   - comment: Compute absolute expiration from effectiveExpiresIn
   - set:
       name: now
@@ -174,7 +153,6 @@ do:
   - set:
       name: expiresAt
       value: '{% date({{expiresAtTs}}).iso %}'
-
   - comment: Store session metadata (non-secret). Single flat key — dynamic bracket keys in `name:` don't persist reliably in user scope.
   - set:
       name: user.<<SERVICE_SLUG>>.oauth
@@ -182,21 +160,16 @@ do:
       value:
         status: connected
         authMethod: delegated
-        tenantId: '{{tenantId}}'
+        scope: '{{scope}}'
         expiresAt: '{{expiresAt}}'
         tokenType: '{{tokenResponse.token_type}}'
         scopes: '{{tokenResponse.scope}}'
         connectedAt: '{{run.date}}'
-
-  - comment: >-
-      Bump user.connectorsVersion so that any consumer that caches per-user
-      connector state (e.g. an agent orchestrator keying its tool list by
-      connectorsVersion) gets a cache miss on the next request.
+  - comment: Bump user.connectorsVersion so that any consumer that caches per-user connector state gets a cache miss on the next request.
   - set:
       name: user.connectorsVersion
       scope: user
       value: '{{run.date}}'
-
   - comment: Save redirectTo before clearing pending
   - set:
       name: redirectTo
@@ -207,10 +180,9 @@ do:
       event: <<SERVICE_SLUG>>.oauth.connected
       payload:
         userId: '{{user.id}}'
-        tenantId: '{{tenantId}}'
+        scope: '{{scope}}'
         authMethod: delegated
         scopes: '{{tokenResponse.scope}}'
-
   - comment: Final redirect (HTML meta-refresh)
   - conditions:
       '{{redirectTo}}':
@@ -219,8 +191,11 @@ do:
             value: '{{redirectTo}}'
       default:
         - set:
+            name: studioHostname
+            value: '{% replace(URL({{global.apiUrl}}).hostname, "api.", "") %}'
+        - set:
             name: finalRedirectUrl
-            value: '{{global.pagesUrl}}/connector-callback'
+            value: https://{{studioHostname}}/apps/<<SERVICE_SLUG>>
   - set:
       name: $http
       value:
@@ -228,8 +203,5 @@ do:
           Content-Type: text/html
   - set:
       name: output
-      value: >-
-        <html><head><meta http-equiv="refresh"
-        content="0;url={{finalRedirectUrl}}?status=connected&catalog_id=connector-<<SERVICE_KEBAB>>"><title>Connected</title></head><body><p>Authentication
-        successful. Redirecting...</p></body></html>
+      value: <html><head><meta http-equiv="refresh" content="0;url={{finalRedirectUrl}}?status=connected&catalog_id=connector-<<SERVICE_SLUG>>"><title>Connected</title></head><body><p>Authentication successful. Redirecting...</p></body></html>
 output: '{{output}}'

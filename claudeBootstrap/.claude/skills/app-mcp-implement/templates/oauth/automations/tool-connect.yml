@@ -1,8 +1,6 @@
 slug: tool-connect
 name: /02_Tools/tool-connect
-description: >-
-  MCP wrapper for the `connect` tool. Returns a connector_auth_required
-  payload so the frontend can render an OAuth connect card.
+description: MCP wrapper for the `connect` tool. Returns a connector_auth_required payload so the frontend can render an OAuth connect card.
 private: true
 arguments:
   body:
@@ -12,15 +10,18 @@ arguments:
         type: object
       tenantId:
         type: string
+      scope:
+        type: string
       tenantConfig:
         type: object
-      mcpApiKey:
+      authMode:
         type: string
 do:
   - method-connect:
       tenantId: '{{body.tenantId}}'
+      scope: '{{body.scope}}'
       tenantConfig: '{{body.tenantConfig}}'
-      mcpApiKey: '{{body.mcpApiKey}}'
+      authMode: '{{body.authMode}}'
       output: methodResult
   - conditions:
       '{{methodResult.error}}':

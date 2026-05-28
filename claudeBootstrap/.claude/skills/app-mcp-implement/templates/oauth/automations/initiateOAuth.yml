@@ -1,16 +1,12 @@
 slug: initiateOAuth
 name: 00_OAuth/initiateOAuth
-description: >-
-  Generate PKCE + state CSRF, store them in user session scope, then redirect
-  the user (HTML meta-refresh) to the tenant's configured <<SERVICE_NAME>> authorize
-  endpoint. Called by the frontend connector card (popup window).
+description: |-
+  Generate PKCE + state CSRF, store them in user session scope, then redirect the user (HTML meta-refresh) to the central <<SERVICE_NAME>> authorize endpoint. Called by the frontend connector card (popup window) or by the `connect` MCP tool.
 
-  Required query params:
-    - `mcpApiKey`: the HMAC-signed MCP key identifying the tenant and its
-      getConfig webhook. The tenant's OAuth provider config is fetched from
-      that webhook.
-    - `redirectTo` (optional): the callback page URL the popup will be sent
-      back to after OAuth completes. Validated against the platform host.
+  Central mode only — the OAuth provider config (clientId/Secret/urls/scopes) comes from this workspace's own `config.value`, which is fed by the workspace secrets `<<SERVICE_SLUG>>OauthClientId` / `<<SERVICE_SLUG>>OauthClientSecret`. No `mcp-api-key` required.
+
+  Optional query params:
+    - `redirectTo`: the callback page URL the popup will be sent back to after OAuth completes. Validated against the platform host.
 private: true
 when:
   endpoint: true
@@ -26,89 +22,27 @@ do:
             name: output
             value: Authentication required. Please log in to Prisme.ai first.
         - break: {}
-
-  - comment: Resolve mcpApiKey — from query string OR from session (stored by mcp.yml on the previous tools/call)
-  - set:
-      name: effectiveMcpApiKey
-      value: '{% {{query.mcpApiKey}} || {{session.mcpApiKey}} %}'
-  - conditions:
-      '!{{effectiveMcpApiKey}}':
-        - set:
-            name: $http
-            value:
-              status: 400
-        - set:
-            name: output
-            value: >-
-              Missing mcpApiKey. Either pass ?mcpApiKey=<signed> in the URL
-              or call the MCP tools/call endpoint first so the key is stored
-              in your session.
-        - break: {}
-
-  - comment: Decode the mcpApiKey → tenantId + getConfigUrl
-  - Custom Code.run:
-      function: verifyAndDecodeKey
-      parameters:
-        apiKey: '{{effectiveMcpApiKey}}'
-        secret: '{{config.appSecret}}'
-      output: decoded
-  - conditions:
-      '{{decoded.error}}':
-        - set:
-            name: $http
-            value:
-              status: 400
-        - set:
-            name: output
-            value: 'Invalid mcpApiKey: {{decoded.error}}'
-        - break: {}
-  - set:
-      name: tenantId
-      value: '{{decoded.workspaceId}}'
-
-  - comment: Fetch tenant OAuth provider config
-  - fetch:
-      url: '{{decoded.getConfigUrl}}'
-      method: GET
-      output: credResponse
-      outputMode: detailed_response
-      emitErrors: false
-  - emit:
-      event: <<SERVICE_SLUG>>.debug.credResponse
-      payload:
-        status: '{{credResponse.status}}'
-        body: '{{credResponse.body}}'
-        tenantId: '{{tenantId}}'
+  - comment: Read central OAuth config from this workspace's config.value (= secrets)
   - set:
       name: tenantOAuth
-      value: '{{credResponse.body.oauth}}'
+      value:
+        clientId: '{{config.oauthClientId}}'
+        clientSecret: '{{config.oauthClientSecret}}'
+        authorizationUrl: '{{config.authorizationUrl}}'
+        tokenUrl: '{{config.tokenUrl}}'
+        revocationUrl: '{{config.revocationUrl}}'
+        scopes: '{{config.scopes}}'
+        refreshTokenTtl: '{{config.refreshTokenTtl}}'
   - conditions:
-      '{{credResponse.status}} != 200':
-        - set:
-            name: $http
-            value:
-              status: 400
-        - set:
-            name: output
-            value: 'Tenant getConfig returned {{credResponse.status}}'
-        - break: {}
       '!{{tenantOAuth.clientId}}':
-        - emit:
-            event: <<SERVICE_SLUG>>.debug.noOAuthConfigured
-            payload:
-              tenantOAuth: '{{tenantOAuth}}'
-              rawBody: '{{credResponse.body}}'
         - set:
             name: $http
             value:
-              status: 400
+              status: 500
         - set:
             name: output
-            value: >-
-              The tenant does not have an OAuth provider configured. Admin must
-              set oauthClientId + oauthClientSecret in the app instance config.
+            value: <<SERVICE_NAME>> OAuth is not configured on the service workspace. A workspace admin must set the secrets `<<SERVICE_SLUG>>OauthClientId` and `<<SERVICE_SLUG>>OauthClientSecret`.
         - break: {}
-
   - comment: Generate PKCE verifier + challenge
   - Custom Code.run:
       function: generatePkce
@@ -117,18 +51,15 @@ do:
   - Custom Code.run:
       function: generateState
       output: stateResult
-
-  - comment: Store pending OAuth state in user scope (survives redirect to <<SERVICE_NAME>>)
+  - comment: Store pending OAuth state in user scope (survives redirect to <<SERVICE_NAME>>). No tenantId — central scope only.
   - set:
       name: user.<<SERVICE_SLUG>>.oauthPending
       scope: user
       value:
         codeVerifier: '{{pkce.codeVerifier}}'
         state: '{{stateResult.state}}'
-        tenantId: '{{tenantId}}'
-        getConfigUrl: '{{decoded.getConfigUrl}}'
+        scope: central
         createdAt: '{{run.date}}'
-
   - comment: Validate redirectTo to prevent open-redirect (same platform host only)
   - conditions:
       '{{query.redirectTo}} matches "https://"':
@@ -143,8 +74,7 @@ do:
                   type: merge
                   value:
                     redirectTo: '{{query.redirectTo}}'
-
-  - comment: Build authorize URL with URL-encoded params (tenant's OAuth app)
+  - comment: Build authorize URL with URL-encoded params (central OAuth app)
   - Custom Code.run:
       function: buildAuthorizeUrl
       parameters:
@@ -155,14 +85,6 @@ do:
         state: '{{stateResult.state}}'
         codeChallenge: '{{pkce.codeChallenge}}'
       output: urlResult
-  - emit:
-      event: <<SERVICE_SLUG>>.debug.urlResult
-      payload:
-        urlResult: '{{urlResult}}'
-        tenantOAuth: '{{tenantOAuth}}'
-        pkce: '{{pkce}}'
-        stateResult: '{{stateResult}}'
-
   - comment: HTML meta-refresh redirect (SSO gateway intercepts HTTP 302 on webhooks)
   - set:
       name: $http
@@ -171,7 +93,5 @@ do:
           Content-Type: text/html
   - set:
       name: output
-      value: >-
-        <html><head><meta http-equiv="refresh" content="0;url={{urlResult.url}}"><title>Redirecting to
-        <<SERVICE_NAME>>...</title></head><body><p>Redirecting to <<SERVICE_NAME>> login...</p><script>window.location.href="{{urlResult.url}}";</script></body></html>
+      value: <html><head><meta http-equiv="refresh" content="0;url={{urlResult.url}}"><title>Redirecting to <<SERVICE_NAME>>...</title></head><body><p>Redirecting to <<SERVICE_NAME>> login...</p><script>window.location.href="{{urlResult.url}}";</script></body></html>
 output: '{{output}}'

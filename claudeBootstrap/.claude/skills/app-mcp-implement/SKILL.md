@@ -91,9 +91,9 @@ Run phases sequentially. Pause after each for confirmation when a decision affec
 
 **Do NOT** proceed to phase 2 without these 4 facts confirmed.
 
-**When the service offers OAuth2 authorization-code**, always ask the user whether to enable it (in addition to or instead of a static PAT). If yes, Phase 4.5 is mandatory. If unsure, default to offering both — tenants pick per-instance in `index.yml` → `config.schema`.
+**When the service offers OAuth2 authorization-code**, always ask the user whether to enable it (in addition to or instead of a static PAT). If yes, Phase 4.5 is mandatory. If unsure, default to offering both — central OAuth (no `mcp-api-key`) + tenant PAT (with `mcp-api-key`) coexist at runtime, see Phase 4.5.
 
-**When Phase 4.5 is enabled**, also capture **`<<PROVIDER_APP_URL>>`** — the provider's OAuth-application management page where tenant admins will create their OAuth app (e.g. `https://gitlab.com/-/user_settings/applications`, `https://github.com/settings/applications/new`, `https://auth.monday.com/oauth2/*`). This URL is embedded in the `oauthClientId` and `oauthClientSecret` descriptions so the admin knows where to go. Ask the user in Phase 1 if you can't confidently derive it from the service docs.
+**When Phase 4.5 is enabled**, also capture **`<<PROVIDER_APP_URL>>`** — the provider's OAuth-application management page where the SERVICE workspace admin will create the ONE central OAuth Application (e.g. `https://gitlab.com/-/user_settings/applications`, `https://github.com/settings/applications/new`, `https://auth.monday.com/oauth2/*`). The URL is embedded in the `<<SERVICE_SLUG>>OauthClient*` secret descriptions. Ask the user in Phase 1 if you can't confidently derive it from the service docs.
 
 ### Phase 2 — Generate `swagger.yml`
 
@@ -191,105 +191,116 @@ Templates use `<<PLACEHOLDER>>` syntax. Replace these globally:
     - **Static-token** (apiKey + optional cx + optional model): `prismeai-workspaces/workspaces/google-search/automations/onInstall.yml`
     - **OAuth user-delegated** (oauthClientId + oauthClientSecret): `prismeai-workspaces/workspaces/google-docs/automations/onInstall.yml`
 
-    OAuth connectors (Phase 4.5) extend this block — same infrastructure, just two more secrets (`<service>OauthClientId`, `<service>OauthClientSecret`) and two more binding A lines.
+    OAuth connectors (Phase 4.5) **no longer extend this block** in the central model — the OAuth client lives in the SERVICE workspace's own secrets (see Phase 4.5 step 6/7), not provisioned per-tenant. The PAT auto-wiring above still applies.
 
-### Phase 4.5 — OAuth2 user-delegated scaffolding (conditional)
+### Phase 4.5 — OAuth2 user-delegated, CENTRAL mode (conditional)
 
 **Skip this phase entirely if Phase 1 determined the service uses static token / basic auth / client-credentials only.** Otherwise, the OAuth templates live in `./templates/oauth/` and extend (not replace) the non-OAuth scaffold.
 
-**Steps:**
+#### What changed (vs the legacy per-tenant model)
 
-1. **Copy all automations + page verbatim** — substitute `<<SERVICE_SLUG>>`, `<<SERVICE_NAME>>`, `<<SERVICE_KEBAB>>`, `<<BASE_URL>>`, `<<PROVIDER_AUTHORIZE_URL>>`, `<<PROVIDER_TOKEN_URL>>`, `<<PROVIDER_REVOKE_URL>>`, **`<<PROVIDER_APP_URL>>`** as usual:
+The legacy model exposed `oauthClientId`/`oauthClientSecret` (and 6 URL fields) in the App's `config.schema` — every tenant had to register their own OAuth Application with the provider, copy 2 secrets into their app instance, and pin a per-tenant callback URL. `onInstall.yml` ran a 2-hop binding A/B to per-tenant Builder secrets.
+
+**Now the OAuth credentials are CENTRAL** — they live in the secrets of the SERVICE workspace (the workspace this skill scaffolds), shared by every Prisme.ai user who calls `/apps/<<SERVICE_SLUG>>` without an `mcp-api-key` header. Concretely:
+
+- ONE OAuth Application registered with the provider (callback URL = `<api>/workspaces/slug:<<SERVICE_SLUG>>/webhooks/oauthCallback`, unique).
+- TWO secrets in the service workspace: `<<SERVICE_SLUG>>OauthClientId` + `<<SERVICE_SLUG>>OauthClientSecret`. Admin fills them once via Builder UI > Secrets.
+- The published App is **PAT-only**: tenants who want their own auth install the App and set `token` (Personal Access Token). No OAuth knob in the App config schema.
+
+#### Two runtime modes (carved into `mcp.yml`)
+
+| Mode | Trigger | Identity | Auth resolution |
+|---|---|---|---|
+| **CENTRAL** (default) | no `mcp-api-key` header | `{{user.id}}` ambient (Prisme.ai JWT) | user-delegated OAuth; tokens in user-scope `delegated_token_central` |
+| **TENANT** | `mcp-api-key` header | tenant workspaceId decoded from key | static PAT (`{{config.token}}`); no OAuth in tenant mode |
+
+`connect`/`disconnect` MCP tools exist only in central mode; `tools/list` filters them out in tenant mode.
+
+#### Steps
+
+1. **Copy templates verbatim** — substitute `<<SERVICE_SLUG>>` (kebab-case), `<<SERVICE_NAME>>` (display), `<<BASE_URL>>` (API base URL), `<<PROVIDER_AUTHORIZE_URL>>`, `<<PROVIDER_TOKEN_URL>>`, `<<PROVIDER_REVOKE_URL>>`, `<<PROVIDER_HOSTNAME>>` (provider DNS), `<<PROVIDER_APP_URL>>` (where admin creates the OAuth app):
 
    ```
    templates/oauth/automations/
-     ├─ initiateOAuth.yml          endpoint — PKCE + redirect to provider
-     ├─ oauthCallback.yml          endpoint — exchange code, store tokens, bump connectorsVersion
-     ├─ disconnectOAuth.yml        endpoint + internal — revoke + delete secrets + bump version
-     ├─ refreshOAuthToken.yml      internal — refresh access_token
-     ├─ checkAuthStatus.yml        endpoint — { connected, expiresAt, scopes }
-     ├─ ensureAuthentication.yml   internal — 4-priority token resolution (PAT vs OAuth vs needsConnect)
-     ├─ connect.yml                App-mode public — returns connect_url
-     ├─ method-connect.yml         shared core
-     ├─ tool-connect.yml           MCP wrapper
+     ├─ initiateOAuth.yml          endpoint — PKCE + redirect to provider (central; no mcp-api-key required)
+     ├─ oauthCallback.yml          endpoint — exchange code, store user.<svc>.delegated_token_central
+     ├─ disconnectOAuth.yml        endpoint + internal — revoke + delete secrets (scope=central)
+     ├─ refreshOAuthToken.yml      internal — refresh access_token (scope-parameterised)
+     ├─ checkAuthStatus.yml        endpoint — { connected, expiresAt, scopes, scope }
+     ├─ ensureAuthentication.yml   internal — central=OAuth user / tenant=PAT (2 priorities)
+     ├─ connect.yml                App-mode public — returns connect_url to central initiateOAuth
+     ├─ method-connect.yml         shared core (central-only — refuses in tenant mode)
+     ├─ tool-connect.yml           MCP wrapper (propagates `scope`, `authMode`)
      ├─ disconnect.yml             App-mode public
      ├─ method-disconnect.yml      shared core
      └─ tool-disconnect.yml        MCP wrapper
    templates/oauth/pages/
-     └─ connector-callback.yml     success page (postMessage + manual close)
+     └─ connector-callback.yml     success page (legacy DSUL; can be migrated to a React SPA via /workspace-page-implement)
    ```
 
-2. **REPLACE `automations/mcp.yml`** with `templates/oauth/fragments/mcp.yml`. The OAuth version special-cases `connect` / `disconnect` before auth, then delegates to `ensureAuthentication` for every other tool (falls through to `needsConnect + connectUrl` when there's no session).
+2. **REPLACE `automations/mcp.yml`** with `templates/oauth/fragments/mcp.yml`. The OAuth version dispatches CENTRAL vs TENANT at the top (single `set authMode: central` + `conditions: '{{headers["mcp-api-key"]}}' → set authMode: tenant`), then special-cases `connect`/`disconnect` (central-only), then delegates to `ensureAuthentication` for every other tool. **Do NOT use a DSUL ternary** (`a ? b : c` is rejected by the parser — `feedback_dsul_no_ternary`).
 
-3. **REPLACE `automations/getConfig.yml`** with `templates/oauth/fragments/getConfig.yml`. It returns an `oauth` block when `oauthClientId` + `oauthClientSecret` are set, guards against unresolved `{{secret.xxx}}` templates, and still forwards a static PAT if the tenant has one.
+3. **REPLACE `automations/getConfig.yml`** with `templates/oauth/fragments/getConfig.yml`. In central mode this webhook is NOT called; in tenant mode it returns ONLY `accessToken` (the PAT) + `baseUrl`. No OAuth block — OAuth lives in the central workspace, not the tenant.
 
-4. **Merge `templates/oauth/imports/Custom-Code-oauth-fragment.yml`** into `imports/Custom Code.yml` under `config.functions` — adds `generatePkce`, `generateState`, `buildAuthorizeUrl`. **Do NOT use `URLSearchParams` or `URL` in Custom Code** (sandbox is Node without web globals — see Gotchas).
+4. **Merge `templates/oauth/imports/Custom-Code-oauth-fragment.yml`** into `imports/Custom Code.yml` under `config.functions` — adds `generatePkce`, `generateState`, `buildAuthorizeUrl`. **Do NOT use `URLSearchParams` or `URL` in Custom Code** (sandbox is Node without web globals — see Gotchas). `makeConfigRef`/`makeSecretRef`/`cleanCredential` from the universal Custom Code template are still used (PAT auto-wiring keeps them relevant).
 
-5. **Merge `templates/oauth/fragments/index-config-schema.yml`** into `index.yml` under `config.schema` (adds `oauthClientId`, `oauthClientSecret`, `oauthCallbackUrl` (readOnly, populated by onInstall), `authorizationUrl`, `tokenUrl`, `revocationUrl`, `scopes`, `refreshTokenTtl`). The `oauthClientId` / `oauthClientSecret` descriptions are enriched at scaffold time with `<<PROVIDER_APP_URL>>` so the tenant admin sees where to create the OAuth app.
+5. **`templates/oauth/fragments/index-config-schema.yml` is now empty (deprecated).** The App `config.schema` exposes ONLY `baseUrl` + `token` (PAT) + `mcpEndpoint`/`mcpApiKey` (readOnly). Nothing OAuth-related.
 
-6. **Merge `templates/oauth/fragments/index-config-value.yml`** into `index.yml` under `config.value` (provider URL defaults, `scopes: api`, `refreshTokenTtl: 7200`). **Never** set `oauthClientId` / `oauthClientSecret` at the CENTRAL workspace `config.value` — they're per-tenant and get auto-wired into each TENANT by step 6b, not by the published app's config.value (which doesn't propagate to instances).
+   ⚠️ **R18 (hard rule)** — Never expose `oauthClient*`, `authorizationUrl`, `tokenUrl`, `revocationUrl`, `scopes`, `refreshTokenTtl`, or `oauthCallbackUrl` in the App's `config.schema`. They are secrets of the SERVICE workspace, not tenant inputs. The published App is PAT-only.
 
-6b. **OAuth tenant secret auto-wiring** — Phase 4 **step 11** already established the universal pattern (provision + binding A/B for every tenant credential). For OAuth, extend that same block with two additional secrets:
-    - `<<SERVICE_SLUG>>OauthClientId` (with description pointing at `<<PROVIDER_APP_URL>>`)
-    - `<<SERVICE_SLUG>>OauthClientSecret` (same)
+6. **Merge `templates/oauth/fragments/index-config-value.yml`** into `index.yml` under `config.value`:
 
-    And add the matching binding A lines to the terminal `set: config type: merge`:
-    ```yaml
-    oauthClientId: '{{bindingClientId}}'
-    oauthClientSecret: '{{bindingClientSecret}}'
+   ```yaml
+   oauthClientId: '{{secret.<<SERVICE_SLUG>>OauthClientId}}'
+   oauthClientSecret: '{{secret.<<SERVICE_SLUG>>OauthClientSecret}}'
+   authorizationUrl: <<PROVIDER_AUTHORIZE_URL>>
+   tokenUrl: <<PROVIDER_TOKEN_URL>>
+   revocationUrl: <<PROVIDER_REVOKE_URL>>
+   scopes: api
+   refreshTokenTtl: 7200
+   ```
+
+   `{{secret.X}}` resolves at runtime when this `config.value` is consumed by the service workspace itself (NOT by tenant app instances — they don't see these keys).
+
+7. **Merge `templates/oauth/fragments/index-secrets-schema.yml`** into `index.yml` under `secrets.schema` — declares the two `<<SERVICE_SLUG>>OauthClient*` keys with `ui:widget: password` and a description pointing at `<<PROVIDER_APP_URL>>`. Workspace admin fills the VALUES in the Builder Secrets section after scaffold.
+
+8. **`onInstall.yml` does NOT provision OAuth secrets per-tenant anymore.** Step 6b of the legacy flow (provisioning + binding A/B for `<<SERVICE_SLUG>>OauthClient*`) is REMOVED. Keep only:
+   - `mcpEndpoint`/`mcpApiKey` generation
+   - The universal PAT auto-wiring block from `templates/fragments/onInstall-tenant-secret-provision.yml` for `<<SERVICE_SLUG>>Token`
+   - Binding A merge for `token` only
+
+   `templates/oauth/fragments/onInstall-provision.yml` is deprecated (now a stub doc).
+
+9. **Prepend `templates/oauth/fragments/index-mcptools.yml`** to `config.value.mcpTools`: `disconnect` and `connect` MUST be listed first so `tools/list` surfaces them to the LLM in central mode. Regenerate `imports/MCP Core.yml` afterwards.
+
+10. **Provider-specific tweaks** (only if the provider deviates from RFC 6749):
+    - Extra body fields in `oauthCallback.yml` `/oauth/token` fetch (e.g. `audience` for Auth0, `tenant` for Azure).
+    - Same for `refreshOAuthToken.yml` if refresh deviates.
+    - Adjust `scopes` default in `config.value` if `api` doesn't fit.
+    - **Providers without `expires_in` / refresh tokens** (e.g. Monday): the templates default `expires_in` to 10 years when absent — no code change needed.
+
+11. **Register the OAuth app at the provider** (GitHub / GitLab / Slack / Monday / ...) with ONE callback URL (stable across central-workspace recreations):
+
+    ```
+    https://<platform-api>/v2/workspaces/slug:<<SERVICE_SLUG>>/webhooks/oauthCallback
     ```
 
-    The OAuth provisioning fragment at `templates/oauth/fragments/onInstall-provision.yml` is the same shape as the generic fragment at `templates/fragments/onInstall-tenant-secret-provision.yml`, just pre-filled for the two OAuth keys. **The `makeConfigRef` / `makeSecretRef` Custom Code helpers come from the universal template `templates/imports/Custom-Code.yml`** (added in step 9 of Phase 4) — you don't need the OAuth fragment for them anymore.
+    Example for `gitlab`: `https://api.sandbox.prisme.ai/v2/workspaces/slug:gitlab/webhooks/oauthCallback`.
 
-    ⚠️ **If you scaffolded by copying an existing workspace** instead of from these templates, verify the universal block IS included (`grep -c secretsProvisioned automations/onInstall.yml` ≥ 1). Reference implementations: `google-search` (static-token + cx + model) and `google-docs` (OAuth). **Do NOT copy `google-mail`/`google-sheets`** — they predate the universal auto-wiring.
+    Admin fills `<<SERVICE_SLUG>>OauthClientId` + `<<SERVICE_SLUG>>OauthClientSecret` in the Builder Secrets section of the SERVICE workspace.
 
-7. **Prepend `templates/oauth/fragments/index-mcptools.yml`** to `config.value.mcpTools`: the `disconnect` and `connect` tools MUST be listed first so `tools/list` surfaces them to the LLM. Regenerate `imports/MCP Core.yml` afterwards so it mirrors the new mcpTools array (see Phase 4 step 10).
+#### DSUL gotchas hit while validating the gitlab pilot
 
-8. **Rename the user-scope namespace** across all copied files: the templates use `user.<<SERVICE_SLUG>>.oauth*` — confirm the substitution happened (grep for `<<SERVICE_SLUG>>.oauth` in the final files; should be zero matches).
+- **No ternary in `{% %}`** — `'{% {{header}} ? "a" : "b" %}'` ⇒ `InvalidExpressionSyntax`. Use `set default + conditions override`. See `feedback_dsul_no_ternary`.
+- **No `+` operator on strings in `{% %}`** — `'{% "https://" + replace(URL(...).hostname, "api.", "") %}'` ⇒ `InvalidExpressionSyntax`. Compute parts inside `{% %}` and assemble via plain `{{}}` interpolation in a separate `value:`.
+- **`global.studioUrl` may not exist** — derive the Studio origin from `global.apiUrl` instead: `'{% replace(URL({{global.apiUrl}}).hostname, "api.", "") %}'`, then `https://{{studioHostname}}/...`.
+- **`push_workspace` chokes on `node_modules`** under `pages/<reactApp>/` — when a React SPA shares the workspace, temporarily `mv pages/<reactApp> /tmp` before bulk pushes, or push automations individually via the MCP.
 
-9. **Provider-specific tweaks** (only if the provider deviates from RFC 6749):
-   - Extra body fields in `oauthCallback.yml` `/oauth/token` fetch (e.g. `audience` for Auth0, `tenant` for Azure)
-   - Same for `refreshOAuthToken.yml` if refresh deviates
-   - Adjust `scopes` default in `config.value` if `api` doesn't fit the provider
-   - **Providers that don't issue refresh tokens and don't return `expires_in`** (e.g. Monday — "tokens do not expire until app uninstall"). The templates already handle this: `oauthCallback.yml` defaults `expires_in` to 10 years when absent, and `ensureAuthentication.yml` Priority 1 tries the stored secret first without checking `expiresAt`. No code change required — just set realistic provider-native scopes in `config.value.scopes`.
+**Deliverables of this phase:** 12 new `automations/*.yml`, 1 `pages/*.yml` (or a React SPA via `/workspace-page-implement`), `mcp.yml` + `getConfig.yml` replaced, `Custom Code.yml` extended, `index.yml` extended (config.value + secrets.schema), `onInstall.yml` unchanged from Phase 4 (no OAuth provisioning block).
 
-10. **Register the OAuth app at the provider** (GitHub / GitLab / Slack / Monday / ...) with callback URL. The templates construct webhook URLs using `slug:<<SERVICE_SLUG>>` (not the raw workspace ID) so the callback URL stays stable even if the central workspace is recreated and becomes:
+### Backward-compat note for migrating an existing OAuth connector
 
-    ```
-    https://<platform-api>/v2/workspaces/slug:<SERVICE_SLUG>/webhooks/oauthCallback
-    ```
-
-    Example for a service with slug `monday`: `https://api.studio.prisme.ai/v2/workspaces/slug:monday/webhooks/oauthCallback`.
-
-    The central workspace admin sets `oauthClientId` + `oauthClientSecret` on the app instance config (not as workspace secrets — per-tenant). See the note below on why the Builder "Secrets" section can't be auto-wired by onInstall.
-
-### Tenant onboarding UX — auto-populate OAuth setup fields
-
-Tenant admins installing an OAuth-enabled app need to know two things the skill can pre-compute:
-
-- **Where to create the OAuth app** on the provider → hard-coded in the `oauthClientId` + `oauthClientSecret` descriptions at scaffold time via `<<PROVIDER_APP_URL>>` (captured in Phase 1).
-- **What redirect URI to paste back into the provider** → `{{global.apiUrl}}/workspaces/slug:<<SERVICE_SLUG>>/webhooks/oauthCallback`. Dynamic per environment, so NOT hard-codable in the template. Instead, `onInstall.yml` computes it at install time and merges it into a readOnly `oauthCallbackUrl` config field (right next to `mcpEndpoint`). Admin reads the value straight from the UI, copies it, pastes in the provider's OAuth app config.
-
-Both of these live in `templates/oauth/fragments/index-config-schema.yml` + `templates/helpers/onInstall.yml` — if you adapt either, mirror the change in the workspace's files to keep them in sync. **Do NOT** point tenants to a static documentation page for the callback URL: the URL depends on `global.apiUrl` (sandbox vs prod), so only the runtime computation is reliable.
-
-**Deliverables of this phase:** 12 new `automations/*.yml`, 1 new `pages/*.yml`, `mcp.yml` + `getConfig.yml` replaced, `Custom Code.yml` + `index.yml` + `MCP Core.yml` extended, `onInstall.yml` adapted (base template populates `oauthCallbackUrl` + hosts the step-6b provisioning block).
-
-### Per-tenant credentials from the Secrets section — fully auto-wired
-
-Goal: let a tenant admin fill the OAuth client id/secret in their workspace's **Secrets** section, and have the connector use them per-tenant. **This works and is fully automated by `onInstall`** (validated end-to-end on google-docs 2026-05-22 — `getConfig` returned the real resolved `clientId`). The tenant admin only fills the secret VALUES; everything else is wired on install. Two config bindings + the secret value:
-
-```
-app instance config.oauthClientId : '{{config.<service>OauthClientId}}'              # binding A (written by onInstall, terminal merge)
-workspace  config.value.<service>OauthClientId : '{{secret.<service>OauthClientId}}'  # binding B (written by onInstall, PATCH /config)
-Secrets section: <service>OauthClientId = <real value>                                # filled by the admin
-→ resolution chain: instance {{config.x}} → workspace config.value {{secret.x}} → secret store ✓
-```
-
-How onInstall writes the bindings (step 6b): an automation **cannot** write a literal `{{config.x}}`/`{{secret.x}}` via a plain `set`/fetch body — DSUL resolves it to empty at set-time (and a `{% "{{" + … %}` concat is rejected by the parser). **The enabling trick: build the literal in Custom Code** (`makeConfigRef`/`makeSecretRef` return the string in plain JS) — substituting the CC-returned value is single-pass, so the literal is stored intact and resolves at read time. `auth: workspace: true` mints a JWT that can PATCH the tenant's own `/security/secrets` (provision placeholders) and `/config` (binding B). Binding A goes into the terminal `set: config` merge.
-
-Platform facts behind the design: `{{secret.x}}` resolves ONLY inside a workspace's `config.value` (never directly in an automation, never in an app-instance config) — hence the two-hop chain. An app's published `config.value` defaults do NOT propagate to tenant app instances, which is why onInstall writes the bindings per-tenant at install time rather than relying on defaults.
-
-The hand-authored equivalent is the `*-consumer` pattern (`index.yml config.value` for B + `imports/<Service>.yml` override for A) — still valid for workspaces you author in DSUL. A tenant can also just type the credentials directly into the app-instance config form (skips the Secrets section entirely).
+When migrating an existing per-tenant OAuth connector (google-docs, salesforce, etc.) to the central model, the breaking change is visible to tenants who had set their own `oauthClientId`/`oauthClientSecret` on their app instance: those fields disappear from the schema. Communicate before flipping the switch. The pilot for the new model is `gitlab` (workspace `bTRQGpr` on sandbox). Use `/app-mcp-fleet-sync` to propagate once validated.
 
 ### Phase 5 — Generate entity-grouped MCP tools + per-op public automations
 
