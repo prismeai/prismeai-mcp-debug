@@ -23,7 +23,7 @@ do:
       name: methodArgs
       value:
         _unused: ''
-  - method-restOp:
+  - methodRestOp:
       operationName: listProcessRules
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

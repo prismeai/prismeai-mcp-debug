@@ -37,7 +37,7 @@ do:
         allOrNone: '{{allOrNone}}'
         collateSubrequests: '{{collateSubrequests}}'
         compositeRequest: '{{compositeRequest}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: runComposite
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

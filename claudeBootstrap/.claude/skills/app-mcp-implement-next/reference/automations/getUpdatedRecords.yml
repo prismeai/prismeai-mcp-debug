@@ -34,7 +34,7 @@ do:
         sObjectName: '{{sObjectName}}'
         start: '{{start}}'
         end: '{{end}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getUpdatedRecords
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

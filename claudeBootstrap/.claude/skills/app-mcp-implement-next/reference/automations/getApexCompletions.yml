@@ -29,7 +29,7 @@ do:
       name: methodArgs
       value:
         type: '{{type}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getApexCompletions
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

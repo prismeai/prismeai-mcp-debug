@@ -1,5 +1,5 @@
 slug: oauthStatus
-name: 00_OAuth/oauthStatus
+name: OAuth/oauthStatus
 description: >-
   Returns the per-user Salesforce OAuth connection status for the current user.
   Used by the config app and by agent-factory's capability `status_url`.

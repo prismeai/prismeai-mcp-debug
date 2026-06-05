@@ -1,5 +1,5 @@
 slug: onInstall
-name: 00_MCP/onInstall
+name: MCP/onInstall
 description: >-
   Provision the tenant app-instance on install/configure (tenant-context model,
   NO HMAC key). Sets the MCP endpoint (this instance's own webhook) + the config

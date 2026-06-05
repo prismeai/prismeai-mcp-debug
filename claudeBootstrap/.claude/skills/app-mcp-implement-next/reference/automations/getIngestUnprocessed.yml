@@ -26,7 +26,7 @@ do:
       name: methodArgs
       value:
         jobId: '{{jobId}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getIngestUnprocessed
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

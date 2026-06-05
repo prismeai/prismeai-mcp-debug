@@ -1,5 +1,5 @@
 slug: validateAgent
-name: /01_Helpers/validateAgent
+name: /Helpers/validateAgent
 description: >-
   Authorize an incoming MCP agent. The agentId is injected server-side by
   agent-factory via the MCP capability `scope: "...,agent_id"` (so it reflects

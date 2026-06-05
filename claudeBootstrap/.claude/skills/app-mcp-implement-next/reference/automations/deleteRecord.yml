@@ -30,7 +30,7 @@ do:
       value:
         sObjectName: '{{sObjectName}}'
         recordId: '{{recordId}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: deleteRecord
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

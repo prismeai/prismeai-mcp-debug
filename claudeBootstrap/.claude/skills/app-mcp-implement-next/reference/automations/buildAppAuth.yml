@@ -1,5 +1,5 @@
 slug: buildAppAuth
-name: /01_Helpers/buildAppAuth
+name: /Helpers/buildAppAuth
 description: >-
   Resolve Salesforce auth from the tenant config object `config.auth`
   (`{mode, loginHost, jwtUsername, oauthClientId, oauthClientSecret,

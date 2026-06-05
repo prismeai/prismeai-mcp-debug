@@ -30,7 +30,7 @@ do:
       value:
         requestId: '{{requestId}}'
         includeDetails: '{{includeDetails}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getMetadataDeployStatus
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

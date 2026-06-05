@@ -27,7 +27,7 @@ do:
       name: methodArgs
       value:
         tests: '{{tests}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: runApexTestsSync
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

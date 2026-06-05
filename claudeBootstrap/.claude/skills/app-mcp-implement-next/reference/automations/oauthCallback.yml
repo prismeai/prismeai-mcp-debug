@@ -1,5 +1,5 @@
 slug: oauthCallback
-name: 00_OAuth/oauthCallback
+name: OAuth/oauthCallback
 description: >-
   OAuth2 authorization-code callback. Validates state, exchanges the code at
   {loginHost}/services/oauth2/token (config.auth creds + stored code_verifier),

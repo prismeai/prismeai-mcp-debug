@@ -1,6 +1,6 @@
-slug: tool-restOp
-name: /03_Tools/tool-restOp
-description: MCP wrapper for any Salesforce REST operation. Forwards arguments to method-restOp and formats the response for MCP clients via formatToolOutput.
+slug: toolRestOp
+name: /Tools/toolRestOp
+description: MCP wrapper for any Salesforce REST operation. Forwards arguments to methodRestOp and formats the response for MCP clients via formatToolOutput.
 private: true
 arguments:
   toolName:
@@ -11,7 +11,7 @@ do:
   - set:
       name: outputFormat
       value: '{% {{body.arguments.outputFormat}} || "verbose" %}'
-  - method-restOp:
+  - methodRestOp:
       operationName: '{{toolName}}'
       args: '{{body.arguments}}'
       accessToken: '{{body.accessToken}}'

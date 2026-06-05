@@ -30,7 +30,7 @@ do:
       value:
         ids: '{{ids}}'
         allOrNone: '{{allOrNone}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: deleteRecords
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

@@ -30,7 +30,7 @@ do:
       value:
         ids: '{{ids}}'
         fields: '{{fields}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getRecordsCollection
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

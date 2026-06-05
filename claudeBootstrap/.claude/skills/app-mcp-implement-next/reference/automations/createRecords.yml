@@ -32,7 +32,7 @@ do:
       value:
         allOrNone: '{{allOrNone}}'
         records: '{{records}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: createRecords
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

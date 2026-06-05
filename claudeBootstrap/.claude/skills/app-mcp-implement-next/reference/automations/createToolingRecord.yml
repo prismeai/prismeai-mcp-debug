@@ -31,7 +31,7 @@ do:
       value:
         sObjectName: '{{sObjectName}}'
         body: '{{body}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: createToolingRecord
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

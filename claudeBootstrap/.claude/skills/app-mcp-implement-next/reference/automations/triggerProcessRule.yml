@@ -35,7 +35,7 @@ do:
         sObjectName: '{{sObjectName}}'
         ruleId: '{{ruleId}}'
         contextIds: '{{contextIds}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: triggerProcessRule
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

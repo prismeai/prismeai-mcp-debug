@@ -36,7 +36,7 @@ do:
         sObjectName: '{{sObjectName}}'
         allOrNone: '{{allOrNone}}'
         records: '{{records}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: createRecordsForType
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

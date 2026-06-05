@@ -1,5 +1,5 @@
 slug: formatToolOutput
-name: /01_Helpers/formatToolOutput
+name: /Helpers/formatToolOutput
 description: Format MCP tool output based on outputFormat (structured / verbose / both). Builds a human-readable verbose message per operation type.
 private: true
 arguments:

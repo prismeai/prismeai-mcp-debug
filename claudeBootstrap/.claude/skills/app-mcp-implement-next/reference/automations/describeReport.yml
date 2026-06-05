@@ -30,7 +30,7 @@ do:
       value:
         reportId: '{{reportId}}'
         includeDetails: '{{includeDetails}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: describeReport
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

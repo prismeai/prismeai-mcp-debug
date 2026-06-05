@@ -1,5 +1,5 @@
 slug: oauthConnect
-name: 00_OAuth/oauthConnect
+name: OAuth/oauthConnect
 description: >-
   Per-user OAuth2 (authorization-code + PKCE) connect endpoint. Opened in the
   user's browser (Connexion button / agent-factory connect_url). Reads the tenant

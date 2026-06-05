@@ -39,7 +39,7 @@ do:
         externalIdField: '{{externalIdField}}'
         externalIdValue: '{{externalIdValue}}'
         body: '{{body}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: upsertRecord
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

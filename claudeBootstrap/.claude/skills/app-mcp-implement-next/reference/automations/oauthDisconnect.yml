@@ -1,5 +1,5 @@
 slug: oauthDisconnect
-name: 00_OAuth/oauthDisconnect
+name: OAuth/oauthDisconnect
 description: >-
   Disconnect the current user's Salesforce OAuth session: best-effort token
   revocation, then delete the stored token. Opened in a popup by the config app

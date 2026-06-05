@@ -27,7 +27,7 @@ do:
       name: methodArgs
       value:
         graphs: '{{graphs}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: runCompositeGraph
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

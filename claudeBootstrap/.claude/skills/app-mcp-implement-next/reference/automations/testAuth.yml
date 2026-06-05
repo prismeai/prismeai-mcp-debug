@@ -1,5 +1,5 @@
 slug: testAuth
-name: 00_MCP/testAuth
+name: MCP/testAuth
 description: >-
   Test the configured Salesforce service credentials: resolves auth via
   buildAppAuth (JWT Bearer / client_credentials / access token / per-user OAuth)

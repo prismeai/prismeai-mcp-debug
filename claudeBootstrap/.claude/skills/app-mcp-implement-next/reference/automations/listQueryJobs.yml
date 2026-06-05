@@ -40,7 +40,7 @@ do:
         isPkChunkingEnabled: '{{isPkChunkingEnabled}}'
         jobType: '{{jobType}}'
         concurrencyMode: '{{concurrencyMode}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: listQueryJobs
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

@@ -26,7 +26,7 @@ do:
       name: methodArgs
       value:
         limit: '{{limit}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getRecentItems
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

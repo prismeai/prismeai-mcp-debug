@@ -57,7 +57,7 @@ do:
         maxFailedTests: '{{maxFailedTests}}'
         testLevel: '{{testLevel}}'
         tests: '{{tests}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: runApexTestsAsync
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

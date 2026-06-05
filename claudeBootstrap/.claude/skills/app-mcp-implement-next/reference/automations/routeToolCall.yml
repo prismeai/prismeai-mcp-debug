@@ -1,5 +1,5 @@
 slug: routeToolCall
-name: /01_Helpers/routeToolCall
+name: /Helpers/routeToolCall
 description: Route an MCP tool call. Tools are grouped by entity (e.g. `records`, `query`, `bulkIngest`); each tool takes an `action` argument that maps to a concrete operationId via the ENTITY_OPS registry in Custom Code. Falls back to direct operationName dispatch if the toolName isn't an entity but matches a real op.
 private: true
 arguments:
@@ -54,7 +54,7 @@ do:
                   text: Internal error — resolved operation `{{operationName}}` not found in registry.
               isError: true
         - break: {}
-  - tool-restOp:
+  - toolRestOp:
       toolName: '{{operationName}}'
       body: '{{toolArgs}}'
       output: result

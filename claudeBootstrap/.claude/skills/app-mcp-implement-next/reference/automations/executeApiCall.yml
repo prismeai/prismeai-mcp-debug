@@ -1,5 +1,5 @@
 slug: executeApiCall
-name: /01_Helpers/executeApiCall
+name: /Helpers/executeApiCall
 description: 'Execute a Salesforce REST API call with auth. `baseUrl` is the full `{instance_url}/services/data/{apiVersion}` (instance URL is returned by the OAuth token endpoint and stored per-user; apiVersion comes from config). Auth header is `Authorization: Bearer {accessToken}`. Returns { success, data, status } or { success: false, error, data, status }.'
 private: true
 arguments:

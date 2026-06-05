@@ -1,5 +1,5 @@
 slug: handleApiError
-name: /01_Helpers/handleApiError
+name: /Helpers/handleApiError
 description: Normalize Salesforce API errors into MCP-compatible error format. Returns null on 2xx (no error), or { isError, content } on non-2xx. Salesforce's REST API returns an array of `{ message, errorCode, fields? }` on errors — we extract the first element's message.
 private: true
 arguments:

@@ -34,7 +34,7 @@ do:
         sObjectName: '{{sObjectName}}'
         recordId: '{{recordId}}'
         fieldName: '{{fieldName}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getRecordField
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

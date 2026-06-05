@@ -27,7 +27,7 @@ do:
       name: methodArgs
       value:
         requests: '{{requests}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: submitApproval
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

@@ -27,7 +27,7 @@ do:
       name: methodArgs
       value:
         body: '{{body}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: runParameterizedSearch
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

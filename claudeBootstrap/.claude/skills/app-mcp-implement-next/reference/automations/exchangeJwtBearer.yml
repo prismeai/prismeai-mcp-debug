@@ -1,5 +1,5 @@
 slug: exchangeJwtBearer
-name: /01_Helpers/exchangeJwtBearer
+name: /Helpers/exchangeJwtBearer
 description: OAuth2 JWT Bearer flow (service-to-service). Signs an RS256 JWT assertion with the tenant's private key and exchanges it at `{loginHost}/services/oauth2/token` for an access_token + instance_url. Result cached in `session.salesforceJwt[cacheKey]` for ~30 min (Salesforce default JWT-flow token lifetime is 120 min — we under-cache for safety). Returns `{ accessToken, instanceUrl }` or `{ error }`.
 private: true
 arguments:

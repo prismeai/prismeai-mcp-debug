@@ -47,7 +47,7 @@ do:
         contentType: '{{contentType}}'
         lineEnding: '{{lineEnding}}'
         columnDelimiter: '{{columnDelimiter}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: createQueryJob
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

@@ -34,7 +34,7 @@ do:
         jobId: '{{jobId}}'
         locator: '{{locator}}'
         maxRecords: '{{maxRecords}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getQueryJobResults
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

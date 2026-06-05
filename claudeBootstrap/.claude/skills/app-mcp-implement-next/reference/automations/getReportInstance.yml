@@ -30,7 +30,7 @@ do:
       value:
         reportId: '{{reportId}}'
         instanceId: '{{instanceId}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getReportInstance
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

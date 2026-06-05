@@ -32,7 +32,7 @@ do:
       value:
         deployOptions: '{{deployOptions}}'
         file: '{{file}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: deployMetadata
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

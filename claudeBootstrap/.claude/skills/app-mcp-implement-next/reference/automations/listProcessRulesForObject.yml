@@ -26,7 +26,7 @@ do:
       name: methodArgs
       value:
         sObjectName: '{{sObjectName}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: listProcessRulesForObject
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

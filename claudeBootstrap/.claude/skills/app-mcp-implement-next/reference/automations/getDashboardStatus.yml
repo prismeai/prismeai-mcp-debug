@@ -26,7 +26,7 @@ do:
       name: methodArgs
       value:
         dashboardId: '{{dashboardId}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: getDashboardStatus
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

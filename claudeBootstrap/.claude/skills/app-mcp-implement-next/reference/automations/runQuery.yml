@@ -26,7 +26,7 @@ do:
       name: methodArgs
       value:
         q: '{{q}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: runQuery
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

@@ -35,7 +35,7 @@ do:
         sObjectName: '{{sObjectName}}'
         recordId: '{{recordId}}'
         body: '{{body}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: updateRecord
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

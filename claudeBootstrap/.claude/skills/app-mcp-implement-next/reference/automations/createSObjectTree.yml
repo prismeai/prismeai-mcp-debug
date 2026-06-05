@@ -31,7 +31,7 @@ do:
       value:
         sObjectName: '{{sObjectName}}'
         records: '{{records}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: createSObjectTree
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

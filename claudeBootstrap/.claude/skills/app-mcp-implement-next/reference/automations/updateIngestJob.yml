@@ -31,7 +31,7 @@ do:
       value:
         jobId: '{{jobId}}'
         state: '{{state}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: updateIngestJob
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

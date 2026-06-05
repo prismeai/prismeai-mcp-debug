@@ -1,5 +1,5 @@
 slug: mcp
-name: 00_MCP/endpoint
+name: MCP/endpoint
 description: >-
   MCP JSON-RPC 2.0 endpoint for Salesforce Next. Runs in the TENANT app-instance
   context (`config.*` = this tenant's credentials, `{{global.workspaceId}}` = the

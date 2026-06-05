@@ -38,7 +38,7 @@ do:
         isPkChunkingEnabled: '{{isPkChunkingEnabled}}'
         jobType: '{{jobType}}'
         queryLocator: '{{queryLocator}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: listIngestJobs
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'

@@ -57,7 +57,7 @@ do:
         lineEnding: '{{lineEnding}}'
         columnDelimiter: '{{columnDelimiter}}'
         assignmentRuleId: '{{assignmentRuleId}}'
-  - method-restOp:
+  - methodRestOp:
       operationName: createIngestJob
       args: '{{methodArgs}}'
       accessToken: '{{auth.accessToken}}'
