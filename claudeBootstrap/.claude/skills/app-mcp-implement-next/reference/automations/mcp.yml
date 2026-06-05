@@ -41,14 +41,25 @@ do:
             output: agentCheck
         - conditions:
             '!{{agentCheck.valid}}':
+              - comment: Explicit, actionable denial (surfaced to the agent as a tool result), distinguishing "not allowlisted" from "agent id not injected (missing scope)".
+              - set:
+                  name: deniedMsg
+                  value: 'This agent is not authorized to use this connector. A workspace admin must allow it: open the connector configuration app → "Authorized agents" → tick this agent (id: {{agentId}}) and Save — or enable "Allow all agents". Tip: the config app''s "Install capability" button does this for you.'
+              - conditions:
+                  '{{agentCheck.reason}} == "missing_agent_id"':
+                    - set:
+                        name: deniedMsg
+                        value: 'The calling agent could not be identified, so it cannot be authorized. The MCP capability must declare Scope "context_id,agent_id,user_id" (this is separate from the OAuth scopes) so agent-factory injects the agent id. Fix the capability Scope, then allow this agent in the connector config app.'
               - set:
                   name: response
                   value:
                     jsonrpc: '2.0'
                     id: '{{body.id}}'
-                    error:
-                      code: -32001
-                      message: Unauthorized agent
+                    result:
+                      content:
+                        - type: text
+                          text: '{{deniedMsg}}'
+                      isError: true
               - break: {}
         - comment: Resolve Salesforce service auth from tenant config (JWT Bearer / OAuth client).
         - buildAppAuth:
