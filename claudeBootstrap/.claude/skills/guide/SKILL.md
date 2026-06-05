@@ -20,8 +20,6 @@ The connector workflow: scaffold a new SaaS connector, test it, consolidate test
 | `/app-mcp-test` | E2E smoke-test the tools exposed by an existing App + MCP workspace. Asks for credentials, lists every MCP tool, executes them one by one, fixes errors until the suite passes. Supports static tokens, Basic, OAuth2 client-credentials, and OAuth2 authorization-code (PKCE). |
 | `/app-mcp-build-consumer` | Build or audit the matching `*-consumer` workspace that consolidates the proven smoke-test coverage into a durable DSUL test suite. Typically chained after `/app-mcp-test`. |
 | `/app-mcp-document` | Generate the public MDX documentation page for an existing connector in the `prismeai/docs` repo (Mintlify). Mirrors the layout of existing pages like `gryzzly.mdx`, `data-galaxy.mdx`. |
-| `/app-mcp-fleet-sync` | Find every connector workspace (by the `app-mcp` label), diff each against the current `/app-mcp-implement` templates + rule checklist, and apply approved fixes. Run when a template trap-fix lands and the deployed fleet drifts. |
-
 ---
 
 ## Agent UI surfaces
@@ -47,8 +45,6 @@ The connector workflow: scaffold a new SaaS connector, test it, consolidate test
 | Build a new third-party SaaS connector (App + MCP) | `/app-mcp-implement` |
 | Test the tools of an existing connector with real credentials | `/app-mcp-test` |
 | Consolidate test coverage into a `*-consumer` workspace | `/app-mcp-build-consumer` |
-| Write or update the public docs of a connector | `/app-mcp-document` |
-| Propagate a template fix across all connectors | `/app-mcp-fleet-sync` |
-| Render interactive UI from agent tool calls | `/agent-implement-a2ui` |
+| Write or update the public docs of a connector | `/app-mcp-document` || Render interactive UI from agent tool calls | `/agent-implement-a2ui` |
 | Edit the React frontend of a workspace | `/workspace-page-implement` |
 | I don't know where to start | `/guide` (this) |
