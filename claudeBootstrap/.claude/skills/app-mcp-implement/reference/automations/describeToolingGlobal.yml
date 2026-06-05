@@ -2,13 +2,6 @@ slug: describeToolingGlobal
 name: describeToolingGlobal
 description: List Tooling API sObjects (GET /tooling/sobjects). Calls the Salesforce REST API via the resolved per-user OAuth session (or JWT Bearer fallback). Public App-mode automation — tenants call `Salesforce.describeToolingGlobal:` directly from their own automations.
 arguments:
-  outputFormat:
-    type: string
-    enum:
-      - structured
-      - verbose
-      - both
-    description: Response format.
 do:
   - buildAppAuth:
       output: auth
@@ -36,12 +29,7 @@ do:
             value:
               error: '{{apiResult.error}}'
         - break: {}
-  - formatToolOutput:
-      operation: read
-      itemType: describeToolingGlobal result
-      identifier: describeToolingGlobal
-      structuredData: '{{apiResult.data}}'
-      jsonData: '{{apiResult.data}}'
-      outputFormat: '{% {{outputFormat}} || "verbose" %}'
-      output: result
+  - set:
+      name: result
+      value: '{{apiResult.data}}'
 output: '{{result}}'

@@ -6,13 +6,6 @@ arguments:
     type: object
     additionalProperties: true
     description: JSON request body.
-  outputFormat:
-    type: string
-    enum:
-      - structured
-      - verbose
-      - both
-    description: Response format.
 do:
   - buildAppAuth:
       output: auth
@@ -40,12 +33,7 @@ do:
             value:
               error: '{{apiResult.error}}'
         - break: {}
-  - formatToolOutput:
-      operation: read
-      itemType: runParameterizedSearch result
-      identifier: runParameterizedSearch
-      structuredData: '{{apiResult.data}}'
-      jsonData: '{{apiResult.data}}'
-      outputFormat: '{% {{outputFormat}} || "verbose" %}'
-      output: result
+  - set:
+      name: result
+      value: '{{apiResult.data}}'
 output: '{{result}}'

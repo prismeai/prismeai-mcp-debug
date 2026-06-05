@@ -2,13 +2,6 @@ slug: listProcessRules
 name: listProcessRules
 description: List active process rules across the org (GET /process/rules). Calls the Salesforce REST API via the resolved per-user OAuth session (or JWT Bearer fallback). Public App-mode automation — tenants call `Salesforce.listProcessRules:` directly from their own automations.
 arguments:
-  outputFormat:
-    type: string
-    enum:
-      - structured
-      - verbose
-      - both
-    description: Response format.
 do:
   - buildAppAuth:
       output: auth
@@ -36,12 +29,7 @@ do:
             value:
               error: '{{apiResult.error}}'
         - break: {}
-  - formatToolOutput:
-      operation: read
-      itemType: listProcessRules result
-      identifier: listProcessRules
-      structuredData: '{{apiResult.data}}'
-      jsonData: '{{apiResult.data}}'
-      outputFormat: '{% {{outputFormat}} || "verbose" %}'
-      output: result
+  - set:
+      name: result
+      value: '{{apiResult.data}}'
 output: '{{result}}'

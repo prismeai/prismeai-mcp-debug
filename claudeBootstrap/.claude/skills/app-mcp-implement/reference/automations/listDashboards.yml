@@ -2,13 +2,6 @@ slug: listDashboards
 name: listDashboards
 description: List all dashboards accessible to the current user (GET /analytics/dashboards). Calls the Salesforce REST API via the resolved per-user OAuth session (or JWT Bearer fallback). Public App-mode automation — tenants call `Salesforce.listDashboards:` directly from their own automations.
 arguments:
-  outputFormat:
-    type: string
-    enum:
-      - structured
-      - verbose
-      - both
-    description: Response format.
 do:
   - buildAppAuth:
       output: auth
@@ -36,12 +29,7 @@ do:
             value:
               error: '{{apiResult.error}}'
         - break: {}
-  - formatToolOutput:
-      operation: read
-      itemType: listDashboards result
-      identifier: listDashboards
-      structuredData: '{{apiResult.data}}'
-      jsonData: '{{apiResult.data}}'
-      outputFormat: '{% {{outputFormat}} || "verbose" %}'
-      output: result
+  - set:
+      name: result
+      value: '{{apiResult.data}}'
 output: '{{result}}'

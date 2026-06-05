@@ -17,13 +17,6 @@ arguments:
     enum:
       - Parallel
       - Serial
-  outputFormat:
-    type: string
-    enum:
-      - structured
-      - verbose
-      - both
-    description: Response format.
 do:
   - buildAppAuth:
       output: auth
@@ -53,12 +46,7 @@ do:
             value:
               error: '{{apiResult.error}}'
         - break: {}
-  - formatToolOutput:
-      operation: read
-      itemType: listQueryJobs result
-      identifier: listQueryJobs
-      structuredData: '{{apiResult.data}}'
-      jsonData: '{{apiResult.data}}'
-      outputFormat: '{% {{outputFormat}} || "verbose" %}'
-      output: result
+  - set:
+      name: result
+      value: '{{apiResult.data}}'
 output: '{{result}}'

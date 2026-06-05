@@ -86,7 +86,7 @@ Create the workspace (`create_workspace` or copy `reference/` and adjust `index.
 From `swagger.yml`, generate (this mirrors `reference/imports/Custom Code.yml` `resolveToolAction`/`getOperation`/`buildSalesforceRequest`):
 1. **`ENTITY_OPS`**: `{ <entity>: { <action>: <operationName> } }` — group endpoints into a handful of entities, each with action verbs. Keep the tool count small (entities, not endpoints).
 2. **`OPERATIONS`**: `{ <operationName>: {method, path, pathParams, queryParams, bodyParams|bodyPassthrough, rawBodyParam?, contentType?, host?/baseUrl?} }`. For multi-API services include the per-op base/host.
-3. **Per-op App-mode automation** `<operationName>.yml` (thin public wrapper → `methodRestOp`/`toolRestOp`). Generate one per operationName (the reference has ~78). Keep them uniform.
+3. **Per-op App-mode automation** `<operationName>.yml` (thin public wrapper → `buildAppAuth` → `methodRestOp`). Generate one per operationName (the reference has ~78). Keep them uniform. **Output the RAW API data** (`output: '{{apiResult.data}}'`), NOT a `formatToolOutput` envelope — these are App-mode instruction calls (`Connector.<op>:`), so callers want the plain JSON (`{...}`), not the MCP `{content:[{type:text}]}` tool-result. `formatToolOutput` (the MCP `content` envelope) belongs ONLY to the MCP tool path (`routeToolCall → toolRestOp`), never to the App-mode wrappers.
 4. **`index.yml` `mcpTools`**: one entry per entity, with an `inputSchema` whose `action` enum lists the entity's actions + the shared params. Mirror the reference's shape.
 Validate the registry/op coherence: every `OPERATIONS` key has an automation file and vice-versa; every entity in `mcpTools` routes.
 
