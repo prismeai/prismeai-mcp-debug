@@ -78,23 +78,7 @@ const FIELDS: Record<Mode, { key: keyof AuthConfig; secret?: boolean; area?: boo
   ],
 }
 
-const DARK_VARS = `@media (prefers-color-scheme: dark){:root{
-  --background:240 10% 3.9%;--foreground:0 0% 98%;--card:240 10% 3.9%;--card-foreground:0 0% 98%;
-  --popover:240 10% 3.9%;--popover-foreground:0 0% 98%;--primary:0 0% 98%;--primary-foreground:240 5.9% 10%;
-  --secondary:240 3.7% 15.9%;--secondary-foreground:0 0% 98%;--muted:240 3.7% 15.9%;--muted-foreground:240 5% 64.9%;
-  --accent:240 3.7% 15.9%;--accent-foreground:0 0% 98%;--destructive:0 62.8% 30.6%;--destructive-foreground:0 0% 98%;
-  --border:240 3.7% 15.9%;--input:240 3.7% 15.9%;--ring:240 4.9% 83.9%;}}`
 
-function useDarkVars() {
-  useEffect(() => {
-    const id = 'salesforce-next-dark-vars'
-    if (document.getElementById(id)) return
-    const el = document.createElement('style')
-    el.id = id
-    el.textContent = DARK_VARS
-    document.head.appendChild(el)
-  }, [])
-}
 
 function resolveHost(sdk: AppProps['sdk']): string {
   if (sdk?.host) return sdk.host
@@ -162,7 +146,6 @@ function SecretInput({ id, value, onChange, placeholder }: { id: string; value: 
 }
 
 function ConfigApp(props: Props) {
-  useDarkVars()
   const { sdk, workspace } = props
   const host = resolveHost(sdk)
   const appInstanceSlug = props.appInstanceSlug || readParam('appInstance')
@@ -698,7 +681,6 @@ function ConfigApp(props: Props) {
 
 // OAuth connect/disconnect result screen (popup). Auto-closes after 5s.
 function OAuthCallbackView({ status, message }: { status: string; message: string }) {
-  useDarkVars()
   const [secs, setSecs] = useState(5)
   useEffect(() => {
     const timer = setInterval(() => setSecs((s) => (s > 0 ? s - 1 : 0)), 1000)
