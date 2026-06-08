@@ -554,12 +554,12 @@ function ConfigApp(props: Props) {
                           {t('btn.disconnect')}
                         </Button>
                       ) : (
-                        <Button variant="secondary" disabled={busy} onClick={connectOAuth}>
+                        <Button variant="outline" disabled={busy} onClick={connectOAuth}>
                           {t('btn.connect')}
                         </Button>
                       )
                     ) : (
-                      <Button variant="secondary" disabled={busy} onClick={testConn}>
+                      <Button variant="outline" disabled={busy} onClick={testConn}>
                         {t('btn.testConn')}
                       </Button>
                     )}
@@ -649,7 +649,7 @@ function ConfigApp(props: Props) {
                                 {authorized.has(a.id) && (
                                   <Button
                                     size="sm"
-                                    variant={installed.has(a.id) ? 'secondary' : 'outline'}
+                                    variant={installed.has(a.id) ? 'outline' : 'outline'}
                                     className="ml-auto shrink-0"
                                     disabled={installingId === a.id}
                                     onClick={() => installCapability(a)}
@@ -664,7 +664,7 @@ function ConfigApp(props: Props) {
                       </>
                     ))}
                   {!allowAll && (
-                    <Button variant="secondary" disabled={busy} onClick={saveAuthorized}>
+                    <Button variant="outline" disabled={busy} onClick={saveAuthorized}>
                       {t('btn.saveAllowlist')}
                     </Button>
                   )}
@@ -704,7 +704,7 @@ function OAuthCallbackView({ status, message }: { status: string; message: strin
         </CardHeader>
         <CardContent className="space-y-3 text-center">
           <p className="text-sm text-muted-foreground">{t('cb.autoclose', { secs })}</p>
-          <Button variant="secondary" onClick={() => window.close()}>
+          <Button variant="outline" onClick={() => window.close()}>
             {t('btn.closeNow')}
           </Button>
         </CardContent>
