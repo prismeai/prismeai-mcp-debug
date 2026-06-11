@@ -45,8 +45,27 @@ This avoids unnecessary API calls and ensures you work with the latest local cha
 | `get_prisme_documentation` | Need Prisme.ai syntax, patterns, or feature reference |
 | `lint_doc` | Need to validate automation YAML for common mistakes |
 | `get_app` / `list_apps` | Working with apps from the marketplace |
-| `pull_workspace` / `push_workspace` | Syncing workspace files locally |
+| `pull_workspace` / `push_workspace` | Syncing workspace DSUL locally (NEVER pushes `pages/<name>/` React apps — see rule below) |
 | `execute_automation` | Testing an automation with a payload |
+
+### `push_workspace` MUST NEVER upload `pages/<name>/` subfolders
+
+When a workspace embeds a React app under `pages/<name>/` (starter-spa / nested-app
+convention), that subfolder is a full frontend project (`src/`, `node_modules/`,
+`dist/`, build tooling) — **NOT** DSUL. **Never `push_workspace` it:**
+
+- The `node_modules` payload makes the importer 500 (and can leave the workspace
+  locked mid-import).
+- The remote keeps the app sources at CANONICAL paths that differ from the local
+  nested layout; pushing the local `pages/<name>/` overwrites that structure and
+  **makes the Studio page disappear**.
+- `push_workspace` does **not** update the runtime `config.value` anyway, so it
+  cannot deploy the bundle pointer (`config.value.bundles[*].bundle`).
+
+**Rule:** any MCP push/sync must EXCLUDE every `pages/*/` subdirectory. To deploy a
+workspace's React app / SPA bundle, use the **`/workspace-page-implement`** skill
+(it builds the CJS bundle, uploads it, and PATCHes `config.value` correctly) — never
+`push_workspace`, `upload_file` + manual config edits, or the raw MCP.
 
 ### Event Search Patterns
 
