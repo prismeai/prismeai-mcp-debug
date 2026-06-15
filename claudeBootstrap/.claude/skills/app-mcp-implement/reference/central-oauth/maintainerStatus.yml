@@ -1,0 +1,33 @@
+slug: maintainerStatus
+name: 00_Maintainer/maintainerStatus
+description: 'CORE webhook — tells the config SPA maintainer view whether the current caller is allowed to configure the central OAuth client. Authoritative gate mirroring setOAuthClient: authenticated user whose role on THIS core workspace is owner/editor/admin (runtime contexts/factory.ts getLoadedSubjectRole; absent for non-members). The GET /security/secrets endpoint CANNOT be used for this — accessManager.findAll returns an empty 200 {} for non-privileged users instead of 403, indistinguishable from a not-yet-configured maintainer. Returns only the boolean(s) + the public clientId/scopes (never the secret), so the SPA can both gate the form and prefill it.'
+private: true
+when:
+  endpoint: true
+do:
+  - set:
+      name: allowed
+      value: false
+  - conditions:
+      '{{user.id}} && ({{user.role}} = "owner" || {{user.role}} = "editor" || {{user.role}} = "admin")':
+        - set:
+            name: allowed
+            value: true
+  - comment: 'Public client part (clientId/scopes) for prefill — only when allowed. config.centralAuth resolves the core declared secret in the core context. The clientSecret is NEVER returned.'
+  - set:
+      name: c
+      value: {}
+  - conditions:
+      '{{allowed}}':
+        - set:
+            name: c
+            value: '{{config.centralAuth}}'
+  - set:
+      name: output
+      value:
+        allowed: '{{allowed}}'
+        authenticated: '{% {{user.id}} && true %}'
+        configured: '{% {{c.oauthClientId}} && {{c.oauthClientSecret}} && true %}'
+        clientId: '{{c.oauthClientId}}'
+        scopes: '{{c.scopes}}'
+output: '{{output}}'

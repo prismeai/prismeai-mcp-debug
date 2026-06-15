@@ -24,6 +24,12 @@ So the core serves it **operationally**:
   **Fail-closed role gate** (`user.role` ∈ owner/editor/admin, absent = 403):
   the PATCH below runs with a privileged `auth: workspace: true` JWT, so the
   caller's RBAC is NOT re-checked by the platform.
+- `maintainerStatus` — read webhook the SPA calls FIRST to decide whether to
+  show the maintainer form. Returns `{allowed}` from the SAME `user.role` gate as
+  `setOAuthClient`, plus the public `clientId`/`scopes` for prefill (NEVER the
+  secret). **Do NOT gate the SPA on `GET /security/secrets`** — that returns an
+  empty `200 {}` for non-privileged users (not 403), so the form would render to
+  everyone (SKILL.md Gotcha 28).
 - `resolveOAuthClient` — called from tenant context: tenant `config.auth` client
   (full override) → else central via the public webhook. Returns
   `{oauthClientId, oauthClientSecret?, scopes, redirectUri, tokenUrl, central}`.
@@ -46,7 +52,7 @@ code cannot exchange it (no verifier).
 ## Wiring checklist (placeholders: `google-workspaces` → `<slug>`, `googleWorkspaces` → `<camel>`, `gws` → `<pfx>`)
 
 1. `index.yml config.value`: `centralAuth: '{{secret.<camel>CentralOAuth}}'`.
-2. Copy the 6 automations; swap the Google token/authorize URLs for the provider's.
+2. Copy the 7 automations; swap the Google token/authorize URLs for the provider's.
 3. Custom Code: add `packOAuthState`/`unpackOAuthState` (see
    `customcode-packOAuthState.yml.snippet`).
 4. `buildAppAuth`: alias `oauthCentral` → `oauth` early; `resolveOAuthClient`
@@ -56,8 +62,15 @@ code cannot exchange it (no verifier).
    fast path.
 6. SPA: `oauthCentral` mode (first + default, FIELDS = scopes only),
    `isOAuthMode()` gating, MaintainerSetup view on `!readParam('workspaceId')`
-   (see `MaintainerSetup-excerpt.tsx`), i18n keys (en+fr).
-7. Re-`publish_app` after any core config/automation change — instances run the
+   (see `MaintainerSetup-excerpt.tsx`) — **gated on `maintainerStatus` (Gotcha 28):
+   non-maintainers get an "Access restricted" card, never the form** — i18n keys
+   (en+fr, incl. `maint.noAccessTitle`/`maint.noAccessBody`).
+7. `validateAgent`: first step short-circuits to `{valid:true, reason:'global_endpoint'}`
+   when `{{config.centralAuth.oauthClientId}}` is set, so the CORE/global MCP
+   endpoint accepts every agent (the allowlist is a tenant-only concern; per-user
+   OAuth is the global gate). No-op in tenants — `centralAuth` is a literal there
+   (Gotcha 26/29).
+8. Re-`publish_app` after any core config/automation change — instances run the
    published snapshot (Gotcha 26 / 18-cache).
 
 Known accepted trade-offs: `centralTokenExchange` is unauthenticated (it can't

@@ -1,7 +1,14 @@
 // SPA excerpts (pages/<slug>/src/App.tsx) — MaintainerSetup view + router.
 // Also add: Mode 'oauthCentral' (first+default, FIELDS=[scopes]), isOAuthMode() gating,
-// i18n keys mode.oauthCentral / preamble.oauthCentral / maint.* (en+fr), and the
-// centralSlugOf/centralRefOf helpers.
+// i18n keys mode.oauthCentral / preamble.oauthCentral / maint.* (en+fr,
+// incl. maint.noAccessTitle / maint.noAccessBody), and the centralSlugOf/centralRefOf helpers.
+//
+// ACCESS GATE (Gotcha 28): the maintainer view must NEVER show the editable form to a
+// non-maintainer. Do NOT infer the role from GET /security/secrets — accessManager.findAll
+// returns an empty 200 {} for non-privileged users (NOT 403), indistinguishable from a
+// not-yet-configured maintainer. Gate on the authoritative `maintainerStatus` webhook
+// (returns { allowed } from user.role, mirroring setOAuthClient). See
+// reference/central-oauth/maintainerStatus.yml.
 
 const CENTRAL_OAUTH_SECRET = 'googleWorkspacesCentralOAuth'
 
@@ -19,8 +26,10 @@ function MaintainerSetup(props: Props) {
   // MUST match resolveOAuthClient's central redirectUri exactly (registered at Google).
   const redirectUri = `${host}/workspaces/slug:${centralSlugOf(workspace) || 'google-workspaces'}/webhooks/oauthCallback`
   const setClientUrl = `${host}/workspaces/${centralRefOf(workspace)}/webhooks/setOAuthClient`
+  const statusUrl = `${host}/workspaces/${centralRefOf(workspace)}/webhooks/maintainerStatus`
 
   const [loading, setLoading] = useState(true)
+  const [forbidden, setForbidden] = useState(false)
   const [busy, setBusy] = useState(false)
   const [hasClient, setHasClient] = useState(false)
   const [clientId, setClientId] = useState('')
@@ -31,8 +40,24 @@ function MaintainerSetup(props: Props) {
   useEffect(() => {
     void (async () => {
       try {
+        // Authoritative maintainer gate (mirrors setOAuthClient): the server checks
+        // user.role (owner/editor/admin) and returns { allowed }. We CANNOT infer this
+        // from GET /security/secrets — accessManager.findAll returns an empty 200 {}
+        // for non-privileged users (not a 403), indistinguishable from a not-yet-set
+        // maintainer. A non-maintainer gets the access-denied screen, never the form.
+        const sr = await fetch(statusUrl, { method: 'POST', headers: apiHeaders(sdk), credentials: 'include' })
+        const status = (await sr.json().catch(() => ({}))) || {}
+        if (!sr.ok || !status.allowed) {
+          setForbidden(true)
+          return
+        }
+        // Prefill from the secrets store (works for maintainers; returns the secret value).
         const r = await fetch(secretsUrl, { headers: apiHeaders(sdk), credentials: 'include' })
-        if (!r.ok) throw new Error(r.status === 403 || r.status === 401 ? t('msg.notAllowed') : t('msg.saveFailed', { status: r.status }))
+        if (r.status === 401 || r.status === 403) {
+          setForbidden(true)
+          return
+        }
+        if (!r.ok) throw new Error(t('msg.saveFailed', { status: r.status }))
         const secrets = (await r.json().catch(() => ({}))) || {}
         const c = (secrets[CENTRAL_OAUTH_SECRET]?.value as { oauthClientId?: string; oauthClientSecret?: string; scopes?: string }) || {}
         setClientId(c.oauthClientId || '')
@@ -45,7 +70,7 @@ function MaintainerSetup(props: Props) {
         setLoading(false)
       }
     })()
-  }, [secretsUrl, sdk])
+  }, [statusUrl, secretsUrl, sdk])
 
   async function save() {
     setBusy(true)
@@ -68,6 +93,26 @@ function MaintainerSetup(props: Props) {
     } finally {
       setBusy(false)
     }
+  }
+
+  if (forbidden) {
+    return (
+      <div className="flex justify-center p-6">
+        <Card className="w-full max-w-xl">
+          <CardHeader>
+            <CardTitle>
+              {CONNECTOR_NAME} — {t('maint.noAccessTitle')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-start gap-3 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <span className="text-lg leading-none">⛔</span>
+              <p>{t('maint.noAccessBody')}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
