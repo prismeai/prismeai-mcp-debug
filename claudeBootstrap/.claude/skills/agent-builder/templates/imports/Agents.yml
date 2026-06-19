@@ -1,0 +1,4 @@
+slug: Agents
+appSlug: Agents
+config:
+  apiKey: '{{secret.agentFactoryApiKey}}'

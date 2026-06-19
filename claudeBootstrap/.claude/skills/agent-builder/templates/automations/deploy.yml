@@ -1,0 +1,60 @@
+slug: deploy
+name: deploy
+description: Create-or-update the Agent Factory agent from the manifest, then publish it.
+when:
+  endpoint: true
+arguments:
+  name:
+    type: string
+  instructions:
+    type: string
+  model:
+    type: string
+  temperature:
+    type: number
+  profile:
+    type: string
+  tools:
+    type: array
+  agentId:
+    type: string
+  visibility:
+    type: string
+do:
+  - comment: >-
+      Always invoked through execute_automation, so the arguments arrive at the
+      top level (not under body.*). The skill passes the FULL desired state, so
+      deploy is declarative: the remote agent ends up matching the manifest.
+  - conditions:
+      '{{agentId}}':
+        - Agents.updateAgent:
+            agent_id: '{{agentId}}'
+            updates:
+              name: '{{name}}'
+              instructions: '{{instructions}}'
+              model: '{{model}}'
+              temperature: '{{temperature}}'
+              profile: '{{profile}}'
+              tools: '{{tools}}'
+            output: agent
+      default:
+        - Agents.createAgent:
+            name: '{{name}}'
+            instructions: '{{instructions}}'
+            model: '{{model}}'
+            temperature: '{{temperature}}'
+            profile: '{{profile}}'
+            tools: '{{tools}}'
+            output: agent
+  - conditions:
+      '{% !{{agent.error}} and {{agent.id}} %}':
+        - Agents.publishAgent:
+            agent_id: '{{agent.id}}'
+            body:
+              visibility: '{{visibility}}'
+            output: published
+output:
+  id: '{{agent.id}}'
+  name: '{{agent.name}}'
+  status: '{{published.status}}'
+  error: '{{agent.error}}'

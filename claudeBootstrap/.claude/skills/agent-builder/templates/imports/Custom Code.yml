@@ -1,0 +1,43 @@
+appSlug: Custom Code
+slug: Custom Code
+config:
+  functions:
+    evalTest:
+      parameters:
+        response:
+          type: object
+        test:
+          type: object
+      code: |
+        // Extract the agent answer from the A2A task response and assert it,
+        // entirely in JS so arbitrary LLM output never reaches a DSUL expression
+        // (a "{{" or operator char in the answer would otherwise crash the suite).
+        const r = response || {};
+        const task = r.task || {};
+        const out = task.output || {};
+        // A2A responses put the answer in `output.messages[]` (plural array, last = agent);
+        // older shapes used `output.message` (singular). Support both.
+        let parts = [];
+        if (Array.isArray(out.messages) && out.messages.length) {
+          parts = out.messages[out.messages.length - 1].parts || [];
+        } else if (out.message && Array.isArray(out.message.parts)) {
+          parts = out.message.parts;
+        }
+        let answer = parts.map(function (p) { return (p && p.text) ? p.text : ''; }).join('\n').trim();
+        const t = test || {};
+        const expected = (t.expected == null) ? '' : String(t.expected);
+        const mode = t.mode || 'contains';
+        let passed = false;
+        if (mode === 'equals') {
+          passed = answer.trim().toLowerCase() === expected.trim().toLowerCase();
+        } else {
+          // contains: try regex, fall back to literal substring
+          try {
+            passed = new RegExp(expected, 'i').test(answer);
+          } catch (e) {
+            passed = answer.toLowerCase().indexOf(expected.toLowerCase()) !== -1;
+          }
+        }
+        // Neutralize template braces so the returned answer is safe to interpolate downstream.
+        const safeAnswer = answer.replace(/{{/g, '{ {').replace(/}}/g, '} }');
+        return { passed: passed, answer: safeAnswer };
