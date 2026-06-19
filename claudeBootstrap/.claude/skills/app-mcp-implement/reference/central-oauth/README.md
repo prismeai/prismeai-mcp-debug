@@ -73,6 +73,37 @@ code cannot exchange it (no verifier).
 8. Re-`publish_app` after any core config/automation change — instances run the
    published snapshot (Gotcha 26 / 18-cache).
 
+## One-click publish to the Capabilities catalog (`CatalogPublish`)
+
+The maintainer view also exposes an **"Add to catalog"** button
+(`src/CatalogPublish.tsx`, copied from the salesforce-next reference) that
+registers the connector in the org-wide **Capabilities catalog** (workspace
+`capabilities`, `3ueUyns`) — the registry Agent Factory reads when a builder adds
+a catalog-backed tool. The platform's own central-OAuth connectors (Figma, Gitlab,
+Google Search) ARE exactly such entries.
+
+- **API**: `GET|POST /workspaces/slug:capabilities/webhooks/v1/servers` (+ `PATCH
+  /…/:id`). An `mcp` entry's `config_schema.properties.server.default` IS the MCP
+  endpoint; OAuth connectors add an `auth` block `{type:'oauth2', status_url,
+  connect_url, disconnect_url, scopes}`. **Note `oauth2`** (catalog convention) vs
+  the `oauth` type used for the per-agent `POST /agents/:id/tools` install.
+- **Endpoint**: the maintainer view publishes the **CORE** endpoint
+  `slug:<slug>/webhooks/mcp` (no per-tenant key) + central OAuth webhooks
+  (`checkAuthStatus`/`initiateOAuth`/`disconnectOAuth`) — per-user OAuth is the
+  access gate (`validateAgent` global short-circuit, point 7). One entry covers the
+  whole org. (A static-token / per-tenant connector mounts the SAME component in
+  its tenant ConfigApp on the per-tenant `mcpEndpoint` instead.)
+- **Gating ("only if it doesn't exist yet")**: on mount it `GET`s
+  `?type=mcp&built_in=false` and matches an entry whose `server` default === our
+  endpoint. Present → "✓ Already in the catalog" + an "Update" (PATCH) action;
+  absent → an enabled "Add to catalog" (POST). The maintainer button stays
+  `disabled` until the central client is saved (`cat.disabledNeedsClient`).
+- **Auth/permissions**: runs with the maintainer's Studio session (Bearer + CSRF,
+  `credentials:'include'`); the entry is org-scoped to their active org
+  server-side. A 403 surfaces as `cat.forbidden`. The entry is **org-wide** — flag
+  this in the helper text (`cat.hint`); it is NOT the per-agent install.
+- **i18n**: `cat.*` keys (en+fr) in `src/lib/i18n.ts`.
+
 Known accepted trade-offs: `centralTokenExchange` is unauthenticated (it can't
 mint tokens without a valid code+verifier or an already-stolen refresh token,
 but it is a low-severity quota amplifier on the central client); the central

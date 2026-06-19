@@ -9,6 +9,8 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { Copy, Check, Eye, EyeOff } from 'lucide-react'
 import { t } from '@/lib/i18n'
+import { resolveHost, readParam, apiHeaders } from '@/lib/utils'
+import { CatalogPublish, type CatalogAuth } from './CatalogPublish'
 
 /**
  * Salesforce Next — connector config SPA (model B: direct platform API).
@@ -80,21 +82,7 @@ const FIELDS: Record<Mode, { key: keyof AuthConfig; secret?: boolean; area?: boo
 
 
 
-function resolveHost(sdk: AppProps['sdk']): string {
-  if (sdk?.host) return sdk.host
-  const o = window.location.origin
-  return o.replace('https://', 'https://api.').replace('http://', 'http://api.') + '/v2'
-}
-function readParam(name: string): string {
-  return new URLSearchParams(window.location.search).get(name) || ''
-}
-function apiHeaders(sdk: AppProps['sdk']): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (sdk?.token) h['Authorization'] = 'Bearer ' + sdk.token
-  const csrf = (sdk as { _csrfToken?: string })?._csrfToken
-  if (csrf) h['x-prismeai-csrf-token'] = csrf
-  return h
-}
+// resolveHost / readParam / apiHeaders live in @/lib/utils (shared with CatalogPublish).
 
 function CopyBtn({ text }: { text: string }) {
   const [ok, setOk] = useState(false)
@@ -497,19 +485,20 @@ function ConfigApp(props: Props) {
     ? agents.filter((a) => (a.name || '').toLowerCase().includes(q) || a.id.toLowerCase().includes(q))
     : agents
 
-  // OAuth `auth` block to paste when creating the capability manually in
-  // Governance > Org > Capabilities (enables the per-user connect with the right URLs).
-  const oauthCapabilityJson = JSON.stringify(
-    {
-      type: 'oauth',
-      status_url: wh('oauthStatus'),
-      connect_url: wh('oauthConnect'),
-      disconnect_url: wh('oauthDisconnect'),
-      scopes: (auth.scopes || 'api refresh_token offline_access').split(/[\s,]+/).filter(Boolean),
-    },
-    null,
-    2,
-  )
+  // Capability `auth` block (OAuth per-user): carries the connect/status/disconnect
+  // URLs so agent-factory drives the per-user flow on the catalog entry. NOTE the
+  // type is `oauth2` here (the Capabilities catalog convention) — distinct from the
+  // `oauth` type used for the per-agent tool in installCapability.
+  const catalogAuth: CatalogAuth | null =
+    auth.mode === 'oauth'
+      ? {
+          type: 'oauth2',
+          status_url: wh('oauthStatus'),
+          connect_url: wh('oauthConnect'),
+          disconnect_url: wh('oauthDisconnect'),
+          scopes: (auth.scopes || 'api refresh_token offline_access').split(/[\s,]+/).filter(Boolean),
+        }
+      : null
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -621,16 +610,22 @@ function ConfigApp(props: Props) {
                     </Button>
                   </div>
                   <p className="text-sm text-muted-foreground">{t('mcp.scopeHint')}</p>
-                  {auth.mode === 'oauth' && (
-                    <div className="space-y-1.5 pt-1">
-                      <Label>{t('mcp.oauthCapTitle')}</Label>
-                      <p className="text-sm text-muted-foreground">{t('mcp.oauthCapHint')}</p>
-                      <div className="flex items-start gap-2">
-                        <pre className="block flex-1 overflow-auto rounded-md border bg-muted px-3 py-2 font-mono text-xs whitespace-pre">{oauthCapabilityJson}</pre>
-                        <CopyBtn text={oauthCapabilityJson} />
-                      </div>
-                    </div>
-                  )}
+                  <div className="space-y-1.5 pt-2">
+                    <Label>{t('cat.title')}</Label>
+                    <CatalogPublish
+                      sdk={sdk}
+                      host={host}
+                      serverUrl={mcpEndpoint}
+                      scope="context_id,agent_id,user_id"
+                      auth={catalogAuth}
+                      identity={{
+                        toolName: 'salesforce_next',
+                        displayName: CONNECTOR_NAME,
+                        description: 'Salesforce CRM (REST API) via MCP.',
+                        category: 'crm',
+                      }}
+                    />
+                  </div>
                 </section>
 
                 <Separator />

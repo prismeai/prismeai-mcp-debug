@@ -3,6 +3,14 @@
 // i18n keys mode.oauthCentral / preamble.oauthCentral / maint.* (en+fr,
 // incl. maint.noAccessTitle / maint.noAccessBody), and the centralSlugOf/centralRefOf helpers.
 //
+// IMPORT: `import { CatalogPublish, type CatalogAuth } from './CatalogPublish'`
+// (src/CatalogPublish.tsx — copied from the salesforce-next reference). The
+// maintainer view publishes the connector to the org Capabilities catalog using
+// the CORE endpoint (slug:<slug>/webhooks/mcp, NOT a per-tenant key) — the same
+// shape the platform's own central-OAuth connectors (Figma, Gitlab) use, where
+// per-user OAuth is the access gate (validateAgent short-circuits to global —
+// README point 7). One catalog entry covers the whole org. See cat.* i18n keys.
+//
 // ACCESS GATE (Gotcha 28): the maintainer view must NEVER show the editable form to a
 // non-maintainer. Do NOT infer the role from GET /security/secrets — accessManager.findAll
 // returns an empty 200 {} for non-privileged users (NOT 403), indistinguishable from a
@@ -11,6 +19,8 @@
 // reference/central-oauth/maintainerStatus.yml.
 
 const CENTRAL_OAUTH_SECRET = 'googleWorkspacesCentralOAuth'
+// Machine name for the catalog entry (snake_case, matches the connector's MCP tool name).
+const CONNECTOR_TOOL_NAME = 'google_workspaces'
 
 // Maintainer setup — shown when the SPA is loaded from the CORE workspace itself
 // (no ?workspaceId= tenant param, which the consumer configAppUrl always carries).
@@ -27,6 +37,18 @@ function MaintainerSetup(props: Props) {
   const redirectUri = `${host}/workspaces/slug:${centralSlugOf(workspace) || 'google-workspaces'}/webhooks/oauthCallback`
   const setClientUrl = `${host}/workspaces/${centralRefOf(workspace)}/webhooks/setOAuthClient`
   const statusUrl = `${host}/workspaces/${centralRefOf(workspace)}/webhooks/maintainerStatus`
+  // CORE MCP endpoint (no per-tenant key) + central OAuth webhooks for the catalog
+  // entry. Same slug used in resolveOAuthClient's central redirectUri.
+  const centralSlug = centralSlugOf(workspace) || 'google-workspaces'
+  const coreMcpEndpoint = `${host}/workspaces/slug:${centralSlug}/webhooks/mcp`
+  const centralWh = (s: string) => `${host}/workspaces/slug:${centralSlug}/webhooks/${s}`
+  const catalogAuth: CatalogAuth = {
+    type: 'oauth2',
+    status_url: centralWh('checkAuthStatus'),
+    connect_url: centralWh('initiateOAuth'),
+    disconnect_url: centralWh('disconnectOAuth'),
+    scopes: (scopes || GOOGLE_SCOPES).split(/[\s,]+/).filter(Boolean),
+  }
 
   const [loading, setLoading] = useState(true)
   const [forbidden, setForbidden] = useState(false)
@@ -140,6 +162,21 @@ function MaintainerSetup(props: Props) {
               {hasClient && (
                 <div className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">{t('maint.clientSet')}</div>
               )}
+              {/* Publish the connector to the org Capabilities catalog (core endpoint,
+                  per-user OAuth gate). Disabled until the central client is saved. */}
+              <div className="space-y-1.5 border-t pt-4">
+                <Label>{t('cat.title')}</Label>
+                <CatalogPublish
+                  sdk={sdk}
+                  host={host}
+                  serverUrl={coreMcpEndpoint}
+                  scope="context_id,agent_id,user_id"
+                  auth={catalogAuth}
+                  disabled={!hasClient}
+                  disabledHint={t('cat.disabledNeedsClient')}
+                  identity={{ toolName: CONNECTOR_TOOL_NAME, displayName: CONNECTOR_NAME, category: 'productivity' }}
+                />
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="m-cid">{t('field.oauthClientId')}</Label>
                 <Input id="m-cid" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="…apps.googleusercontent.com" />

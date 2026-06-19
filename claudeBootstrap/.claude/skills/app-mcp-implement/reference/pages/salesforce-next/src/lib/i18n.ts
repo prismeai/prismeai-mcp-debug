@@ -70,9 +70,20 @@ const dict: Record<Lang, Record<string, string>> = {
     'mcp.useUrl': "Use this URL as the capability's SSE/WebSocket URL:",
     'mcp.scopeHint':
       'Wiring this as a capability manually (Governance → Org → Capabilities)? Set its Scope field to context_id,agent_id,user_id — that is how the agent is identified to the connector (distinct from the OAuth scopes in the auth block). The “Install capability” button sets it for you.',
-    'mcp.oauthCapTitle': 'OAuth capability config',
-    'mcp.oauthCapHint':
-      'To enable the per-user connect button on a capability, create an MCP capability under Governance → Org → Capabilities and paste this auth block (it carries the connect / status / disconnect URLs):',
+    'cat.title': 'Capabilities catalog',
+    'cat.hint':
+      'Publish this connector to your org’s Capabilities catalog so any builder can attach it (org-wide). Distinct from the per-agent “Install capability” button below.',
+    'cat.checking': 'Checking the catalog…',
+    'cat.present': 'Already in the catalog',
+    'cat.add': 'Add to catalog',
+    'cat.update': 'Update catalog entry',
+    'cat.saving': 'Saving…',
+    'cat.added': 'Added to the Capabilities catalog.',
+    'cat.updated': 'Catalog entry updated.',
+    'cat.forbidden': 'Forbidden — you need catalog write rights in this org.',
+    'cat.saveFailed': 'Catalog save failed ({status}). {detail}',
+    'cat.checkFailed': 'Could not verify the catalog — you can still try to add the entry.',
+    'cat.disabledNeedsClient': 'Configure and save the central OAuth client above before publishing to the catalog.',
 
     'agents.title': 'Authorized agents',
     'agents.subtitle': "Tick the agents allowed to call this connector's MCP endpoint.",
@@ -150,9 +161,20 @@ const dict: Record<Lang, Record<string, string>> = {
     'mcp.useUrl': "Utilisez cette URL comme SSE/WebSocket URL de la capacité :",
     'mcp.scopeHint':
       'Vous câblez la capacité manuellement (Governance → Org → Capabilities) ? Mettez son champ Scope à context_id,agent_id,user_id — c’est ainsi que l’agent est identifié auprès du connecteur (distinct des scopes OAuth du bloc auth). Le bouton « Installer la capacité » le fait pour vous.',
-    'mcp.oauthCapTitle': 'Config OAuth de la capacité',
-    'mcp.oauthCapHint':
-      'Pour activer le bouton de connexion par utilisateur sur une capacité, créez une capacité MCP dans Governance → Org → Capabilities et collez ce bloc auth (il porte les URLs connect / status / disconnect) :',
+    'cat.title': 'Catalogue de capacités',
+    'cat.hint':
+      'Publiez ce connecteur dans le catalogue de capacités de votre organisation pour que n’importe quel builder puisse l’attacher (portée organisation). Distinct du bouton « Installer la capacité » par agent ci-dessous.',
+    'cat.checking': 'Vérification du catalogue…',
+    'cat.present': 'Déjà au catalogue',
+    'cat.add': 'Ajouter au catalogue',
+    'cat.update': "Mettre à jour l'entrée",
+    'cat.saving': 'Enregistrement…',
+    'cat.added': 'Ajouté au catalogue de capacités.',
+    'cat.updated': 'Entrée du catalogue mise à jour.',
+    'cat.forbidden': "Interdit — il faut un droit d'écriture sur le catalogue de cette organisation.",
+    'cat.saveFailed': 'Échec de l’enregistrement au catalogue ({status}). {detail}',
+    'cat.checkFailed': 'Impossible de vérifier le catalogue — vous pouvez tout de même tenter l’ajout.',
+    'cat.disabledNeedsClient': 'Configurez et enregistrez le client OAuth central ci-dessus avant de publier au catalogue.',
 
     'agents.title': 'Agents autorisés',
     'agents.subtitle': "Cochez les agents autorisés à appeler l'endpoint MCP de ce connecteur.",
