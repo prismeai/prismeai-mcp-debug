@@ -304,21 +304,67 @@ export class PrismeApiClient {
         body?: any;
         environment?: string;
         pick?: string[];
+        asSession?: boolean;
+        apiKey?: string;
+        withUserBearer?: boolean;
     }): Promise<{ status: number; data: any }> {
         // Resolve the environment's base URL so the token and URL stay consistent.
         const apiUrl =
             params.environment && this.environments[params.environment]?.apiUrl
                 ? this.environments[params.environment].apiUrl
                 : undefined;
-        const client = this.getClient(apiUrl, params.environment);
         const method = (params.method || 'GET').toUpperCase();
         const url = params.path.startsWith('/') ? params.path : `/${params.path}`;
-        const response = await client.request({
-            url,
-            method: method as any,
-            params: params.query,
-            data: params.body,
-        });
+        let response;
+        if (params.apiKey) {
+            // Org/app key mode: authenticate with x-prismeai-api-key. By default NO
+            // Bearer is sent, so the gateway resolves the org from the key without a
+            // membership check (acting for an org you are not a member of).
+            // With `withUserBearer`, ALSO send the user Bearer: combines a real user
+            // identity (e.g. superadmin) with the org key's org context, so the
+            // gateway can take the admin/owner path while the key selects the org.
+            const headers: Record<string, string> = {
+                'x-prismeai-api-key': params.apiKey,
+                'Content-Type': 'application/json',
+            };
+            if (params.withUserBearer) {
+                headers['Authorization'] = `Bearer ${this.getApiKeyForEnvironment(params.environment)}`;
+            }
+            response = await axios.request({
+                baseURL: apiUrl || this.baseUrl,
+                url,
+                method: method as any,
+                params: params.query,
+                data: params.body,
+                headers,
+            });
+        } else if (params.asSession) {
+            // Session mode: send the token as the `access-token` cookie (NOT as a
+            // Bearer access token). Some endpoints (e.g. PUT /user/active-org) are
+            // session-only and reject access tokens; cookie auth makes the call be
+            // treated as a browser session, and the session (incl. active org) is
+            // preserved across calls that reuse the same token.
+            const effectiveApiKey = this.getApiKeyForEnvironment(params.environment);
+            response = await axios.request({
+                baseURL: apiUrl || this.baseUrl,
+                url,
+                method: method as any,
+                params: params.query,
+                data: params.body,
+                headers: {
+                    Cookie: `access-token=${effectiveApiKey}`,
+                    'Content-Type': 'application/json',
+                },
+            });
+        } else {
+            const client = this.getClient(apiUrl, params.environment);
+            response = await client.request({
+                url,
+                method: method as any,
+                params: params.query,
+                data: params.body,
+            });
+        }
         let data = response.data;
         // Optional field projection — keeps large list endpoints usable by trimming
         // each item (or each entry of a `results`/`items` array) to the picked keys.

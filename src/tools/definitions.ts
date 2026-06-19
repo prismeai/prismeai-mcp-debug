@@ -777,6 +777,21 @@ export const tools: Tool[] = [
           description:
             "Optional field projection to keep responses small. Each named top-level key is kept; for list responses the projection is applied to every entry of `results`/`items` (or of a top-level array). E.g. ['slug','name'] on '/orgs'.",
         },
+        asSession: {
+          type: "boolean",
+          description:
+            "Send the token as the `access-token` cookie (browser-session auth) instead of a Bearer access token. Required for session-only endpoints like `PUT /user/active-org`; the active org set this way persists for subsequent asSession calls reusing the same token.",
+        },
+        apiKey: {
+          type: "string",
+          description:
+            "Authenticate with this key as `x-prismeai-api-key` (by default NO Bearer). For an `iak_<org>_…` org key the gateway resolves the org from the key with NO membership check — use this to create/publish an agent in an org you are not a member of (e.g. POST /workspaces/slug:agent-factory/webhooks/v1/agents).",
+        },
+        withUserBearer: {
+          type: "boolean",
+          description:
+            "Only with `apiKey`: ALSO send the configured user Bearer alongside the api key. Combines a real user identity (e.g. superadmin) with the org key's org context, so the gateway can take the admin/owner path while the key selects the org. Use to manage (read/update) an existing agent in another org.",
+        },
       },
       required: ["path"],
     },

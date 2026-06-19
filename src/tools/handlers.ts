@@ -155,13 +155,16 @@ export async function handleToolCall(
 }> {
   switch (name) {
     case "call_api": {
-      const { path, method, query, body, environment, pick } = args as {
+      const { path, method, query, body, environment, pick, asSession, apiKey, withUserBearer } = args as {
         path: string;
         method?: string;
         query?: Record<string, any>;
         body?: any;
         environment?: string;
         pick?: string[];
+        asSession?: boolean;
+        apiKey?: string;
+        withUserBearer?: boolean;
       };
       const httpMethod = (method || "GET").toUpperCase();
       if (
@@ -179,6 +182,9 @@ export async function handleToolCall(
         body,
         environment,
         pick,
+        asSession,
+        apiKey,
+        withUserBearer,
       });
       return truncateJsonOutput(apiResult, `call_api ${httpMethod} ${path}`);
     }
