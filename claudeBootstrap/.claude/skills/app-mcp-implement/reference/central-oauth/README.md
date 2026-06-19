@@ -102,6 +102,14 @@ Google Search) ARE exactly such entries.
   `credentials:'include'`); the entry is org-scoped to their active org
   server-side. A 403 surfaces as `cat.forbidden`. The entry is **org-wide** — flag
   this in the helper text (`cat.hint`); it is NOT the per-agent install.
+- **Role gate (UI stopgap)**: the catalog write API has **NO server-side role
+  check** today (any authenticated org member can POST — `capabilities/_auth.yml`
+  only resolves `owner_id` + `session.org.slug`). So `CatalogPublish` self-hides
+  unless the user is an org **owner/admin**: it `GET`s `/me` on mount and tests
+  `me.org.role.slug ∈ {org:owner, org:admin}` (`PRIVILEGED_CATALOG_ROLES`), on the
+  ACTIVE org. UI-only (not a security boundary); the real fix is a role gate in the
+  `capabilities` workspace DSUL. The component renders its own `cat.title` heading
+  and returns `null` when hidden.
 - **i18n**: `cat.*` keys (en+fr) in `src/lib/i18n.ts`.
 
 Known accepted trade-offs: `centralTokenExchange` is unauthenticated (it can't

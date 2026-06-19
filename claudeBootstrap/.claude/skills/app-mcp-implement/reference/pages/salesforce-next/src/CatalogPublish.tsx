@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SDK } from './types'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { apiHeaders } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 
@@ -86,6 +87,16 @@ export interface CatalogPublishProps {
 
 const CATALOG_WS = 'slug:capabilities'
 
+// STOPGAP role gate: the catalog write API (`capabilities` workspace `/v1/servers`)
+// is org-scoped but currently has NO server-side role check — ANY authenticated org
+// member (incl. builder/member) can POST. Until the platform enforces a role there,
+// we only SHOW the "Add to catalog" button to org owners/admins. This is UI-only and
+// NOT a security boundary (a privileged-enough API caller can still POST directly);
+// the authoritative fix is a role gate in the capabilities workspace DSUL.
+// We read the role on the ACTIVE org — the same org the write runs under server-side
+// (capabilities `_auth.yml` resolves `session.org.slug`).
+const PRIVILEGED_CATALOG_ROLES = ['org:owner', 'org:admin']
+
 /** Build the `/v1/servers` body for an `mcp` catalog entry. Mirrors the shape of
  *  the platform's own custom entries (Figma, Gitlab, …). */
 export function buildMcpCatalogEntry(props: Pick<CatalogPublishProps, 'identity' | 'serverUrl' | 'scope' | 'auth'>) {
@@ -121,6 +132,27 @@ export function CatalogPublish(props: CatalogPublishProps) {
   const [checkFailed, setCheckFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  // Role gate: null = resolving (render nothing), false = hide entirely, true = show.
+  const [canPublish, setCanPublish] = useState<boolean | null>(null)
+
+  // Resolve the user's role on the ACTIVE org via /me and decide whether to show
+  // the button at all. Fail-closed (hide) on error.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const r = await fetch(`${host}/me`, { headers: apiHeaders(sdk), credentials: 'include' })
+        const me = (await r.json().catch(() => ({}))) || {}
+        const roleSlug: string = me?.org?.role?.slug || ''
+        if (!cancelled) setCanPublish(PRIVILEGED_CATALOG_ROLES.includes(roleSlug))
+      } catch {
+        if (!cancelled) setCanPublish(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [host, sdk])
 
   // Existence pre-check: match a same-org custom mcp entry on the server URL
   // (names can collide across connectors; the endpoint is the real identity).
@@ -147,9 +179,11 @@ export function CatalogPublish(props: CatalogPublishProps) {
     }
   }, [catalogUrl, serverUrl, sdk])
 
+  // Only probe the catalog once the user is known to be privileged (avoids a
+  // needless catalog GET for users who won't see the button).
   useEffect(() => {
-    void check()
-  }, [check])
+    if (canPublish === true) void check()
+  }, [check, canPublish])
 
   async function publish() {
     setBusy(true)
@@ -177,8 +211,12 @@ export function CatalogPublish(props: CatalogPublishProps) {
     }
   }
 
+  // Hidden for non-privileged users (and while the role is still resolving).
+  if (canPublish !== true) return null
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 border-t pt-4">
+      <Label>{t('cat.title')}</Label>
       <p className="text-sm text-muted-foreground">{t('cat.hint')}</p>
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('cat.checking')}</p>
