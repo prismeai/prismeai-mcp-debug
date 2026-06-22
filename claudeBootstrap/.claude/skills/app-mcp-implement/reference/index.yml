@@ -9,6 +9,13 @@ photo: https://api.sandbox.prisme.ai/v2/files/PvCEGmC/F_WsSaPFE6Inge7jMJHcE.sale
 customDomains: []
 repositories: {}
 config:
+  # Inline config UI (Gotcha 31): point `block` at the SAME bundle URL as
+  # config.value.bundles[<slug>].bundle so the one-product builder renders the
+  # SPA inline as the config UI (instead of the schema form). Keep block + bundles
+  # in sync on every redeploy. The SPA must detect the maintainer view via
+  # `workspace.slug === CENTRAL_SLUG` (NOT the absence of ?workspaceId=) and read
+  # tenant/instance from props. The configAppUrl link below stays as the fallback.
+  block: https://api.sandbox.prisme.ai/v2/files/PvCEGmC/YfUjk5Wd1i0BfRSM9gYKv.bundle.js
   schema:
     configAppUrl:
       type: string

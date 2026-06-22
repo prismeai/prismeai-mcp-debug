@@ -21,6 +21,13 @@
 const CENTRAL_OAUTH_SECRET = 'googleWorkspacesCentralOAuth'
 // Machine name for the catalog entry (snake_case, matches the connector's MCP tool name).
 const CONNECTOR_TOOL_NAME = 'google_workspaces'
+// The connector's OWN (core) workspace slug — STABLE across environments. Used to
+// tell apart "hosted in the connector's own Builder" (maintainer view) from "hosted
+// in a consumer tenant's Builder" (per-tenant config), now that the SPA can also be
+// mounted inline via `config.block` (no ?workspaceId= query param). All central /
+// maintainer URLs are built from this constant — never from centralSlugOf(workspace),
+// which returns the TENANT slug under a config.block mount.
+const CENTRAL_SLUG = 'google-workspaces'
 
 // Maintainer setup — shown when the SPA is loaded from the CORE workspace itself
 // (no ?workspaceId= tenant param, which the consumer configAppUrl always carries).
@@ -31,15 +38,18 @@ const CONNECTOR_TOOL_NAME = 'google_workspaces'
 function MaintainerSetup(props: Props) {
   const { sdk, workspace } = props
   const host = resolveHost(sdk)
+  // The maintainer view only renders when hosted in the connector's OWN Builder
+  // (router gate below), so workspace.id IS the core raw id here. /security/secrets
+  // does NOT resolve slug:<slug> (it needs the raw id), so keep workspace.id.
   const coreId = workspace?.id || ''
   const secretsUrl = `${host}/workspaces/${coreId}/security/secrets`
   // MUST match resolveOAuthClient's central redirectUri exactly (registered at Google).
-  const redirectUri = `${host}/workspaces/slug:${centralSlugOf(workspace) || 'google-workspaces'}/webhooks/oauthCallback`
-  const setClientUrl = `${host}/workspaces/${centralRefOf(workspace)}/webhooks/setOAuthClient`
-  const statusUrl = `${host}/workspaces/${centralRefOf(workspace)}/webhooks/maintainerStatus`
+  const redirectUri = `${host}/workspaces/slug:${CENTRAL_SLUG}/webhooks/oauthCallback`
+  const setClientUrl = `${host}/workspaces/slug:${CENTRAL_SLUG}/webhooks/setOAuthClient`
+  const statusUrl = `${host}/workspaces/slug:${CENTRAL_SLUG}/webhooks/maintainerStatus`
   // CORE MCP endpoint (no per-tenant key) + central OAuth webhooks for the catalog
   // entry. Same slug used in resolveOAuthClient's central redirectUri.
-  const centralSlug = centralSlugOf(workspace) || 'google-workspaces'
+  const centralSlug = CENTRAL_SLUG
   const coreMcpEndpoint = `${host}/workspaces/slug:${centralSlug}/webhooks/mcp`
   const centralWh = (s: string) => `${host}/workspaces/slug:${centralSlug}/webhooks/${s}`
   const catalogAuth: CatalogAuth = {
@@ -216,9 +226,17 @@ export default function App(props: Props) {
   if (readParam('view') === 'oauthCallback') {
     return <OAuthCallbackView status={readParam('status')} message={readParam('message')} />
   }
-  // Maintainer mode: loaded from the core workspace itself (Builder) — i.e. without
-  // the tenant ?workspaceId= param, which the consumer configAppUrl always carries.
-  if (!readParam('workspaceId')) {
+  // Maintainer mode = the SPA is hosted in the connector's OWN (core) workspace
+  // Builder (central OAuth client setup). Detect it by HOST IDENTITY
+  // (workspace.slug === CENTRAL_SLUG), NOT by the absence of ?workspaceId=: when
+  // mounted inline via `config.block` inside a consumer tenant's Builder there is no
+  // query param, yet the view must be the per-tenant ConfigApp (which resolves the
+  // tenant from workspace.id and the instance from props.appInstanceSlug). Gating on
+  // the missing param alone would wrongly show MaintainerSetup, whose maintainerStatus
+  // call then 404s on the tenant → "Access restricted". See SKILL.md Gotcha 31.
+  const hostSlug = props.workspace?.slug
+  const isConnectorHost = hostSlug === CENTRAL_SLUG || hostSlug === props.connectorSlug
+  if (!readParam('workspaceId') && isConnectorHost) {
     return <MaintainerSetup {...props} />
   }
   return <ConfigApp {...props} />
