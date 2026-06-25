@@ -1,0 +1,60 @@
+slug: runTests
+name: runTests
+description: Inline test battery — sends each test input to the deployed agent and asserts the answer.
+when:
+  endpoint: true
+arguments:
+  agentId:
+    type: string
+  tests:
+    type: array
+do:
+  - set:
+      name: results
+      value: []
+  - set:
+      name: passed
+      value: 0
+  - repeat:
+      'on': '{{tests}}'
+      do:
+        - Agents.sendMessage:
+            agent_id: '{{agentId}}'
+            message:
+              message_id: test-{{run.correlationId}}-{{$index}}
+              role: user
+              parts:
+                - type: text
+                  text: '{{item.input}}'
+            output: response
+        - comment: >-
+            Extraction + assertion run in Custom Code so arbitrary LLM output
+            never reaches a DSUL expression; a literal template-brace or operator
+            char in the answer would otherwise crash the whole suite.
+        - Custom Code.run:
+            function: evalTest
+            parameters:
+              response: '{{response}}'
+              test: '{{item}}'
+            output: assertion
+        - conditions:
+            '{{assertion.passed}}':
+              - set:
+                  name: passed
+                  value: '{% {{passed}} + 1 %}'
+        - set:
+            name: results
+            type: push
+            value:
+              name: '{{item.name}}'
+              input: '{{item.input}}'
+              expected: '{{item.expected}}'
+              mode: '{{item.mode}}'
+              answer: '{{assertion.answer}}'
+              passed: '{{assertion.passed}}'
+output:
+  total: '{{tests.length}}'
+  passed: '{{passed}}'
+  failed: '{% {{tests.length}} - {{passed}} %}'
+  success: '{% {{passed}} = {{tests.length}} %}'
+  results: '{{results}}'

@@ -21,9 +21,12 @@ So the core serves it **operationally**:
   fetch is MANDATORY (else the secret leaks into `runtime.fetch.failed` events).
 - `setOAuthClient` — maintainer webhook writing the core declared secret
   `<camel>CentralOAuth = {oauthClientId, oauthClientSecret, scopes}`.
-  **Fail-closed role gate** (`user.role` ∈ owner/editor/admin, absent = 403):
-  the PATCH below runs with a privileged `auth: workspace: true` JWT, so the
-  caller's RBAC is NOT re-checked by the platform.
+  **Fail-closed role gate** (`user.role` ∈ owner/editor/admin **OR
+  `user.platformRole = "superadmin"`**, absent = 403): the PATCH below runs with a
+  privileged `auth: workspace: true` JWT, so the caller's RBAC is NOT re-checked by
+  the platform. `user.role` is only the *workspace-direct* role, so the
+  `platformRole` clause lets platform SuperAdmins (and org-inherited owners are a
+  separate gap) operate the view without a direct per-workspace grant.
 - `maintainerStatus` — read webhook the SPA calls FIRST to decide whether to
   show the maintainer form. Returns `{allowed}` from the SAME `user.role` gate as
   `setOAuthClient`, plus the public `clientId`/`scopes` for prefill (NEVER the
@@ -102,6 +105,14 @@ Google Search) ARE exactly such entries.
   `credentials:'include'`); the entry is org-scoped to their active org
   server-side. A 403 surfaces as `cat.forbidden`. The entry is **org-wide** — flag
   this in the helper text (`cat.hint`); it is NOT the per-agent install.
+- **Role gate (UI stopgap)**: the catalog write API has **NO server-side role
+  check** today (any authenticated org member can POST — `capabilities/_auth.yml`
+  only resolves `owner_id` + `session.org.slug`). So `CatalogPublish` self-hides
+  unless the user is an org **owner/admin**: it `GET`s `/me` on mount and tests
+  `me.org.role.slug ∈ {org:owner, org:admin}` (`PRIVILEGED_CATALOG_ROLES`), on the
+  ACTIVE org. UI-only (not a security boundary); the real fix is a role gate in the
+  `capabilities` workspace DSUL. The component renders its own `cat.title` heading
+  and returns `null` when hidden.
 - **i18n**: `cat.*` keys (en+fr) in `src/lib/i18n.ts`.
 
 Known accepted trade-offs: `centralTokenExchange` is unauthenticated (it can't

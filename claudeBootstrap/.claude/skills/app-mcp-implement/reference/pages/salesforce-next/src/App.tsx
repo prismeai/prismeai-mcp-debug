@@ -610,22 +610,19 @@ function ConfigApp(props: Props) {
                     </Button>
                   </div>
                   <p className="text-sm text-muted-foreground">{t('mcp.scopeHint')}</p>
-                  <div className="space-y-1.5 pt-2">
-                    <Label>{t('cat.title')}</Label>
-                    <CatalogPublish
-                      sdk={sdk}
-                      host={host}
-                      serverUrl={mcpEndpoint}
-                      scope="context_id,agent_id,user_id"
-                      auth={catalogAuth}
-                      identity={{
-                        toolName: 'salesforce_next',
-                        displayName: CONNECTOR_NAME,
-                        description: 'Salesforce CRM (REST API) via MCP.',
-                        category: 'crm',
-                      }}
-                    />
-                  </div>
+                  <CatalogPublish
+                    sdk={sdk}
+                    host={host}
+                    serverUrl={mcpEndpoint}
+                    scope="context_id,agent_id,user_id"
+                    auth={catalogAuth}
+                    identity={{
+                      toolName: 'salesforce_next',
+                      displayName: CONNECTOR_NAME,
+                      description: 'Salesforce CRM (REST API) via MCP.',
+                      category: 'crm',
+                    }}
+                  />
                 </section>
 
                 <Separator />

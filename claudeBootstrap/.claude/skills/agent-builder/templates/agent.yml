@@ -1,0 +1,101 @@
+# Agent manifest — git-versioned source of truth for everything EXCEPT the prompt.
+# The prompt lives in AGENT.md (sibling file). The agent-builder skill reads both
+# on `deploy` and makes the remote Agent Factory agent match this manifest declaratively.
+
+name: <Agent display name>
+slug: <agent-slug>            # must match the workspace folder name + index.yml slug
+
+# --- LLM settings ---
+model: gpt-4o-mini            # MUST be in the target org's allowed_models (see SKILL
+                              # "Available models": GET /orgs/<slug> settings.llm.allowed_models)
+temperature: 0.2
+profile: agent_light          # simple | workflow | agent_light | agent_full | orchestrator
+                              # tools/MCP require agent_light or higher
+visibility: restricted        # publish visibility: restricted | public | private
+
+# --- Per-agent budget overrides (optional; omit/null to inherit the profile) ---
+# Override the profile's per-task caps. agent_light defaults: token_budget 20000 /
+# tool_calls 15 / max_turns 10 — too low for tool-heavy agents (big MCP schemas + verbose
+# tool results truncate the run with "réponse incomplète — budget atteint"). Read by
+# agent-factory _init-defaults (the agent record wins over the shared profile).
+# ⚠️ The Agents app's create/updateAgent does NOT persist these — a deploy reverts them to
+# the profile default. After deploy, set them with a direct PATCH /v1/agents/<id>
+# { token_budget, tool_call_budget, max_turns } (deploy.yml forwards them, but the Agents
+# app currently ignores them, so the PATCH is authoritative).
+token_budget: null
+tool_call_budget: null
+max_turns: null
+
+# --- Capabilities ---
+# Each entry becomes a tool on the deployed agent. Native system tools
+# (todo_write, knowledge_search, planning, memory, delegation, ...) are injected
+# automatically by the agent's profile and must NOT be listed here.
+# Tool types: file_search | guardrail | function | skill | mcp
+capabilities: []
+  # - type: file_search
+  #   name: knowledge
+  #   description: Search the project knowledge base.
+  #
+  # - type: guardrail
+  #   name: injection-detect
+  #   description: Block prompt injection on input.
+  #
+  # - type: function
+  #   name: get_weather
+  #   description: Get the current weather for a city.
+  #   extra:
+  #     url: https://example.com/weather
+  #     parameters:
+  #       type: object
+  #       properties:
+  #         city:
+  #           type: string
+  #       required:
+  #         - city
+
+# --- App+MCP connectors ---
+# Installed into THIS workspace by the skill, then wired to the agent as an `mcp` tool.
+# Do NOT hardcode the MCP `server` URL here: it embeds the per-environment workspaceId
+# (+ key), so the skill RESOLVES it at deploy time from the installed instance config
+# (get_app_instance_config -> mcpEndpoint) on the target environment.
+appMcp: []
+  # - appSlug: GoogleDrive       # marketplace app slug (from list_apps)
+  #   slug: google-drive         # local app-instance slug (imports/<slug>.yml)
+  #   config: {}                 # connector configuration (credentials, options)
+  #   tool:
+  #     type: mcp
+  #     name: google_drive
+  #     description: Search and read Google Drive files.
+  #     # server: resolved per-env by the skill from the installed instance's mcpEndpoint
+
+# --- Test battery (inline runner: Agents.sendMessage + assertion) ---
+tests: []
+  # - name: introduces itself
+  #   input: Bonjour, qui es-tu ?
+  #   expected: assistant          # mode "contains" treats expected as a regex/substring
+  #   mode: contains               # contains (default) | equals
+  # - name: exact answer
+  #   input: "Réponds uniquement: 42"
+  #   expected: "42"
+  #   mode: equals
+
+# --- Organizations registry (the skill presents these when asking where to deploy) ---
+# The agent is created in the org bound to the agentFactoryApiKey (iak_ key) used on
+# the target env — there is NO way to auto-enumerate all your orgs from here, and the
+# org slug is confirmed after deploy via getAgent.orgSlug. List the orgs you work with
+# so the skill can offer them; the per-org key is the workspace secret (not committed).
+knownOrgs: []
+  # - { slug: prisme-ai, name: Prisme.ai }
+
+# --- Deployment state (written by the skill — do NOT edit by hand) ---
+# `org` is the organization the agent lives in on that env (= the org of the iak_ key
+# set as agentFactoryApiKey). Switching org means setting that org's key + redeploying.
+deployedIds:
+  sandbox:
+    workspaceId: null
+    agentId: null
+    org: null      # { slug, name }
+  prod:
+    workspaceId: null
+    agentId: null
+    org: null

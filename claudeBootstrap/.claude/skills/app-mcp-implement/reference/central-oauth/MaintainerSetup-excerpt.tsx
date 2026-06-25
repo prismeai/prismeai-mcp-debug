@@ -73,7 +73,8 @@ function MaintainerSetup(props: Props) {
     void (async () => {
       try {
         // Authoritative maintainer gate (mirrors setOAuthClient): the server checks
-        // user.role (owner/editor/admin) and returns { allowed }. We CANNOT infer this
+        // user.role (owner/editor/admin) OR user.platformRole === "superadmin" and
+        // returns { allowed }. We CANNOT infer this
         // from GET /security/secrets — accessManager.findAll returns an empty 200 {}
         // for non-privileged users (not a 403), indistinguishable from a not-yet-set
         // maintainer. A non-maintainer gets the access-denied screen, never the form.
@@ -173,20 +174,18 @@ function MaintainerSetup(props: Props) {
                 <div className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">{t('maint.clientSet')}</div>
               )}
               {/* Publish the connector to the org Capabilities catalog (core endpoint,
-                  per-user OAuth gate). Disabled until the central client is saved. */}
-              <div className="space-y-1.5 border-t pt-4">
-                <Label>{t('cat.title')}</Label>
-                <CatalogPublish
-                  sdk={sdk}
-                  host={host}
-                  serverUrl={coreMcpEndpoint}
-                  scope="context_id,agent_id,user_id"
-                  auth={catalogAuth}
-                  disabled={!hasClient}
-                  disabledHint={t('cat.disabledNeedsClient')}
-                  identity={{ toolName: CONNECTOR_TOOL_NAME, displayName: CONNECTOR_NAME, category: 'productivity' }}
-                />
-              </div>
+                  per-user OAuth gate). Self-hides unless the user is an org owner/admin;
+                  also disabled until the central client is saved. Renders its own heading. */}
+              <CatalogPublish
+                sdk={sdk}
+                host={host}
+                serverUrl={coreMcpEndpoint}
+                scope="context_id,agent_id,user_id"
+                auth={catalogAuth}
+                disabled={!hasClient}
+                disabledHint={t('cat.disabledNeedsClient')}
+                identity={{ toolName: CONNECTOR_TOOL_NAME, displayName: CONNECTOR_NAME, category: 'productivity' }}
+              />
               <div className="space-y-1.5">
                 <Label htmlFor="m-cid">{t('field.oauthClientId')}</Label>
                 <Input id="m-cid" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="…apps.googleusercontent.com" />

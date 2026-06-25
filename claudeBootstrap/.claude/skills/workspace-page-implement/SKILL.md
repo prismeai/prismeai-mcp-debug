@@ -15,32 +15,48 @@ via `config.value.bundles[<slug>]`, loaded at runtime by the platform's `AppRend
 example is `/Users/hadrien/Documents/pptx-generator/` — read its `AGENTS.md` and
 `scripts/deploy.mjs` when in doubt about the contract.
 
-The app **lives in `<workspace>/pages/<appName>/`** — the workspace root stays
-DSUL-pure (`index.yml`, `security.yml`, `.import.yml`, `automations/`, `imports/`),
-and the React project (`src/`, `scripts/`, `package.json`, `dist/`, `node_modules/`,
-`.env`, `.prismeai/`, etc.) lives one level down in `pages/<appName>/`. Multi-app
-is supported by adding sibling `pages/<otherApp>/` folders. See
-[[convention_react_app_nested]] for the full rationale.
+The app **lives in `pages/<workspace>/`** — a TOP-LEVEL folder that is a SIBLING
+of `workspaces/` at the repo root, **named after the workspace** (strict 1:1 by
+name; `pages/<workspace>/` ↔ `workspaces/<workspace>/`). The workspace folder
+`workspaces/<workspace>/` stays DSUL-pure (`index.yml`, `security.yml`,
+`.import.yml`, `automations/`, `imports/`), and the React project (`src/`,
+`scripts/`, `package.json`, `dist/`, `node_modules/`, `.env`, `.prismeai/`, etc.)
+lives in the sibling tree `pages/<workspace>/`.
 
-> **Legacy layout warning** — `pptx-generator/` and older workspaces have the
-> React project flat at the workspace root (no `pages/<appName>/` nesting). If
-> you see `src/App.tsx` directly at the root, treat it as the legacy layout and
-> either keep it or offer migration to the user.
+```
+prismeai-workspaces/
+├── workspaces/<workspace>/   ← DSUL only (index.yml, automations/, imports/, security.yml)
+└── pages/<workspace>/        ← React app (src/, scripts/, package.json, dist/, node_modules/)
+```
+
+**One app per workspace, named after the workspace, is the convention.** If a
+second app is ever genuinely needed (rare / defensive), add a sibling
+`pages/<workspace>-<variant>/` folder. See [[convention_react_app_nested]] for the
+full rationale.
+
+> **Legacy layout warning** — older workspaces use one of two now-legacy layouts:
+> (1) the React project flat at the workspace root (`workspaces/<ws>/src/App.tsx`
+> directly, no subfolder), or (2) the React project NESTED inside the workspace
+> at `workspaces/<ws>/pages/<appName>/`. Both are deprecated; the current
+> convention is the sibling `pages/<workspace>/` tree. If you encounter either
+> legacy form, treat it as legacy and either keep it or offer migration to the
+> sibling layout.
 
 ## Conventions (recap — read before bootstrapping)
 
 Treat each bullet as a checklist item when bootstrapping a new app.
 
-1. **Layout** : React project in `<workspace>/pages/<appName>/`. Workspace root
+1. **Layout** : React project in `pages/<workspace>/` (sibling of `workspaces/`,
+   named after the workspace). The workspace folder `workspaces/<workspace>/`
    = DSUL only (`index.yml`, `automations/`, `imports/`).
 2. **`metadata.path` of source files stays CANONICAL** (`src/App.tsx`,
-   `package.json`, etc.) — **never** prefix with `pages/<appName>/`. The Studio
+   `package.json`, etc.) — **never** prefix with the app-dir path. The Studio
    derives its editable source-view from canonical paths ; prefixing makes the
    auto-page disappear with an `InvalidVersionError` alert. Local↔remote
    asymmetry is intentional. See [[convention_react_app_nested]].
-3. **Studio SPA detection requires 2 boilerplate automations** at the
-   workspace root : `automations/v1/status.yml` +
-   `automations/on-app-greeting-requested.yml`. Without them, the workspace
+3. **Studio SPA detection requires 2 boilerplate automations** in the DSUL
+   workspace folder : `workspaces/<workspace>/automations/v1/status.yml` +
+   `workspaces/<workspace>/automations/on-app-greeting-requested.yml`. Without them, the workspace
    renders only the "Lecture seule" auto-page and source files appear in
    Fichiers but aren't wired to an editable view. **Always scaffold these at
    bootstrap.** See [[feedback_studio_spa_detection_needs_automations]] for
@@ -48,25 +64,39 @@ Treat each bullet as a checklist item when bootstrapping a new app.
 4. **MCP `upload_file` drops the `metadata` parameter silently** — uploads
    succeed but server-side `metadata: {}` ends up empty. Use `curl` multipart
    with explicit `metadata.path` / `metadata.type` / `metadata.hash` form
-   fields for source uploads. See [[feedback_mcp_upload_file_metadata_dropped]].
+   fields for source uploads (or follow `upload_file` with a
+   `PATCH /workspaces/:id/files/:id {metadata:{path,type:'source',hash}}`).
+   See [[feedback_mcp_upload_file_metadata_dropped]].
+   **PLATFORM FIX 2026-06-23 ~11:30 (commit `ada8572b7` `fix/native-files-upload-metadata`,
+   `services/workspaces/src/utils/uploadMetadata.ts`)**: the upload route now
+   persists both the top-level `metadata` object AND `metadata.<key>` form fields,
+   so on an env running ≥ that build the drop is gone. **Why this matters for the
+   native preview**: a source file uploaded/saved WITHOUT `metadata.path` is keyed
+   by its bare `file.name` (no `src/` prefix) in the sandbox files-map, so the
+   preview compiler's `@/x → src/x` alias resolution FAILS for it (relative `./x`
+   still resolves). Symptom: `@/lib/utils` red-underlined / `(0, import_utils3.readParam)
+   is not a function`, `./` works — NOT a compiler/alias bug (`resolveInVfs` is
+   correct); the cause is the dropped `metadata.path`. On a fixed env, keep `@/`
+   imports and just re-save/redeploy so files regain `metadata.path`.
 5. **In-Builder Builder cannot resolve npm deps outside the socle**
    (`@react-three/*`, `three`, viz libs, etc.). If your app depends on those,
    **warn the user not to click the "Déployer" UI button** — it rebuilds from
    sources and overwrites your good bundle with a broken one. Build locally +
    push the prebuilt bundle. See [[feedback_inbuilder_builder_limited_deps]].
-6. **`pages/*.yml` (DSUL Pages) is deprecated** — don't create new ones. The
-   `pages/` directory is now reserved for `pages/<appName>/` subfolders. See
-   [[feedback_dsul_pages_yml_deprecated]].
+6. **`pages/*.yml` (DSUL Pages) is deprecated** — don't create new ones. (Legacy
+   DSUL pages may still sit in `workspaces/<workspace>/pages/*.yml`; don't add
+   more.) The React app no longer lives under the workspace — it's the top-level
+   sibling `pages/<workspace>/`. See [[feedback_dsul_pages_yml_deprecated]].
 7. **The bundle key in `config.value.bundles` MUST equal the workspace slug**.
    The Studio routes `/apps/<X>` by looking up `config.value.bundles[<X>]`
    where `<X>` is the workspace slug — an arbitrary key (e.g.
    `connector-callback` on a workspace whose slug is `gitlab`) yields
-   "L'application X n'existe pas ou a été dépubliée". Local folder name
-   `pages/<appName>/` is decoupled from the bundle key — the asymmetry is
-   intentional. **For multi-app workspaces, the platform currently exposes
-   only ONE bundle per workspace** : route different views via `?status=`,
-   `?view=`, or `?screen=` query params inside the single bundle, not
-   separate `bundles.X` entries.
+   "L'application X n'existe pas ou a été dépubliée". The app folder
+   `pages/<workspace>/` is named after the workspace, so it normally matches the
+   bundle key — but the key that matters is always the workspace slug. **The
+   platform currently exposes only ONE bundle per workspace** : if you ever need
+   multiple views, route them via `?status=`, `?view=`, or `?screen=` query
+   params inside the single bundle, not separate `bundles.X` entries.
 8. **Tailwind `dark:` classes are no-ops in the Studio AppRenderer** — the
    renderer does NOT toggle a `dark` class on `<html>` / `<body>`, so the
    default `darkMode: 'media'` of starter-spa's `tailwind.config.js`
@@ -81,8 +111,8 @@ Treat each bullet as a checklist item when bootstrapping a new app.
    strings. Detection walks `navigator.languages` then falls back to
    `navigator.language` and finally to a hard default (usually `en`).
    Strings live in `MESSAGES: Record<Locale, Messages>` ; the component
-   reads `MESSAGES[detectLocale()]`. Pattern from
-   `pages/connector-callback/src/App.tsx` in workspace `gitlab` (sandbox).
+   reads `MESSAGES[detectLocale()]`. Pattern from `pages/gitlab/src/App.tsx`
+   (the `gitlab` workspace's app, sandbox).
 
 ---
 
@@ -97,21 +127,23 @@ If `$1` is missing or ambiguous, run Phase 1 detection.
 
 ## Phase 1 — Resolve the target workspace
 
-1. If `$1` is provided, treat it as a path (absolute or relative to cwd).
-   - `Glob: <path>/index.yml` to confirm it's a Prisme.ai workspace folder.
+1. If `$1` is provided, treat it as a workspace name (or a path to its DSUL
+   folder, absolute or relative to cwd). Resolve `<workspace>` = the workspace
+   name/slug.
+   - `Glob: workspaces/<workspace>/index.yml` to confirm it's a Prisme.ai workspace folder.
    - If no `index.yml`, abort with a clear error.
-2. If `$1` is missing, run `Glob: ./*/index.yml`. If multiple workspaces are
+2. If `$1` is missing, run `Glob: workspaces/*/index.yml`. If multiple workspaces are
    present, ask the user via `AskUserQuestion` which one to target.
-3. Read `<workspace>/index.yml` to extract the workspace `id`, `name`, `slug`.
+3. Read `workspaces/<workspace>/index.yml` to extract the workspace `id`, `name`, `slug`.
 4. Detect the layout mode and operation :
-   - **Nested layout** (current convention) : check for `<workspace>/pages/*/scripts/deploy.mjs` via Glob.
-     - Zero matches → **Bootstrap** (run Phase 2A, scaffold under `pages/<appName>/`).
-     - Exactly one match (e.g. `pages/foo/scripts/deploy.mjs`) → **Edit** mode targeting that app (run Phase 2B).
-     - Multiple matches → ask the user via `AskUserQuestion` which app to edit, or read `$1`/`$2` for an explicit `--app=<name>` hint.
-   - **Legacy flat layout** : if `<workspace>/scripts/deploy.mjs` + `<workspace>/src/App.tsx` exist at the root → **Edit** mode on the legacy layout. Offer (don't force) migration to `pages/<appName>/` before editing.
-   - **Hybrid / corrupted** : files split between root and `pages/*/` → ask the user before continuing.
+   - **Sibling layout** (current convention) : check for `pages/<workspace>/scripts/deploy.mjs` via Glob.
+     - Match present → **Edit** mode targeting that app (run Phase 2B).
+     - No match → **Bootstrap** (run Phase 2A, scaffold under `pages/<workspace>/`).
+   - **Legacy nested layout** : if `workspaces/<workspace>/pages/*/scripts/deploy.mjs` exists → **Edit** mode on the (now deprecated) nested app. Offer (don't force) migration to the sibling `pages/<workspace>/` before editing.
+   - **Legacy flat layout** : if `workspaces/<workspace>/scripts/deploy.mjs` + `workspaces/<workspace>/src/App.tsx` exist at the workspace root → **Edit** mode on the legacy layout. Offer (don't force) migration to `pages/<workspace>/` before editing.
+   - **Hybrid / corrupted** : files split between the legacy locations and `pages/<workspace>/` → ask the user before continuing.
 
-In all cases, set the variable `<appDir>` = the path to the app's project root (`<workspace>/pages/<appName>/` in nested mode, `<workspace>/` in legacy mode). All subsequent `cd`/path references in this skill use `<appDir>`.
+In all cases, set the variable `<appDir>` = the path to the app's project root (`pages/<workspace>/` in the current sibling layout ; `workspaces/<workspace>/pages/<appName>/` or `workspaces/<workspace>/` for the two legacy layouts). All subsequent `cd`/path references in this skill use `<appDir>`. The default `<appName>` collapses to the workspace slug.
 
 ### Caveat — creating a brand-new remote workspace (rare)
 
@@ -163,11 +195,10 @@ The value is a JSON-stringified object :
 
 ## Phase 2A — Bootstrap (when no app exists yet)
 
-By default, `<appName>` = workspace slug. If the user supplies a different name
-(or you're adding a second app to an existing workspace), use that. `<appDir>` =
-`<workspace>/pages/<appName>/`.
+By default `<appName>` = workspace slug, and the app folder is named after the
+workspace : `<appDir>` = `pages/<workspace>/`.
 
-1. Confirm with the user: "Le workspace `<name>` n'a pas encore d'app React. Je bootstrap depuis github.com/prismeai/starter-spa dans `pages/<appName>/` sur `<env>` ?"
+1. Confirm with the user: "Le workspace `<name>` n'a pas encore d'app React. Je bootstrap depuis github.com/prismeai/starter-spa dans `pages/<workspace>/` sur `<env>` ?"
 2. Download the starter tarball:
    ```bash
    curl -fL https://github.com/prismeai/starter-spa/archive/refs/heads/main.tar.gz -o /tmp/starter-spa.tgz
@@ -175,11 +206,11 @@ By default, `<appName>` = workspace slug. If the user supplies a different name
    tar -xzf /tmp/starter-spa.tgz -C /tmp/
    ```
 3. Create `<appDir>` and copy the starter contents into it. Exclude `automations/`
-   (the workspace root owns DSUL), `.git*`, `dist/`, `node_modules/`,
+   (the DSUL folder `workspaces/<workspace>/` owns DSUL), `.git*`, `dist/`, `node_modules/`,
    `package-lock.json`, `.env`, `TODO.md`, `package.json` and `src/App.tsx`
    (both templated below):
    ```bash
-   mkdir -p <workspace>/pages/<appName>
+   mkdir -p pages/<workspace>
    rsync -av \
      --exclude='automations' \
      --exclude='.git*' \
@@ -190,7 +221,7 @@ By default, `<appName>` = workspace slug. If the user supplies a different name
      --exclude='TODO.md' \
      --exclude='package.json' \
      --exclude='src/App.tsx' \
-     /tmp/starter-spa-main/ <workspace>/pages/<appName>/
+     /tmp/starter-spa-main/ pages/<workspace>/
    ```
 4. Render the 3 templates from this skill's `templates/` folder. **All variables
    are auto-filled — never prompt the user for these values**:
@@ -210,17 +241,52 @@ By default, `<appName>` = workspace slug. If the user supplies a different name
    ```bash
    cd <appDir> && npm install
    ```
+
+7b. **Bootstrap hardening — apply these BEFORE the first build.** All three ship
+    broken in starter-spa and each is a *recurring* boot-time crash if skipped
+    (observed again 2026-06-23). Fix them proactively, don't wait for the smoke test.
+
+    a. **Trim `scripts/externals.mjs` to the real socle.** starter-spa marks
+       `@radix-ui/react-label`, `@radix-ui/react-switch`, `@radix-ui/react-slider`
+       as host-provided, but the AppRenderer socle does **not** expose them →
+       `ModuleLoadError: Module "@radix-ui/react-label" is not available in the
+       shared socle` at boot (a bundled `<Label>`/shadcn input is enough to hit it).
+       **Remove those three lines** so esbuild bundles them. The runtime's
+       `ModuleLoadError` prints the exact "Available modules" list — trim to match
+       if any other module surfaces. See [[feedback_starter_spa_externals_drift]].
+
+    b. **Convert dark mode to a media query in `src/styles/globals.css`.** starter-spa
+       ships a class-based `.dark { … }` block, but the AppRenderer **never toggles a
+       `.dark` class** → the app is permanently forced to light and ignores the user's
+       OS theme. Rewrite the block as:
+       ```css
+       /* was: .dark { --background: …; … } */
+       @media (prefers-color-scheme: dark) { :root { --background: …; … } }
+       ```
+       Also drop the full-bleed `body { @apply bg-background … }` (keep only
+       `text-foreground`) so the app doesn't paint a frame in the host's theme. Cf. rule 8.
+
+    c. **Don't rely on lucide-react icons beyond a tiny verified set.** lucide-react is
+       external (socle) and the socle ships only a **curated subset** (~250 icons). A
+       valid-looking import (`FileSpreadsheetIcon`, `PresentationIcon`, …) that isn't in
+       the subset resolves to `undefined` at runtime and the whole app crashes with
+       **Minified React error #130** ("Element type is invalid … got: undefined") — and
+       **typecheck passes**, because TS sees the full npm package. Safest default for a
+       fresh app: a **CSS spinner** for loading and **inline SVG / emoji** for decoration;
+       add lucide icons only one-by-one after confirming each renders. Cf. rule 7.
+
 8. First build :
    ```bash
    cd <appDir> && npm run build
    ```
    If it fails, surface the esbuild output to the user. Don't proceed.
 
-9. **Scaffold the 2 Studio-detection boilerplate automations at the workspace root**
-   (without these, the Studio won't expose the editable source-view — see
+9. **Scaffold the 2 Studio-detection boilerplate automations in the DSUL workspace folder**
+   `workspaces/<workspace>/automations/` (without these, the Studio won't expose
+   the editable source-view — see
    [[feedback_studio_spa_detection_needs_automations]]) :
 
-   `<workspace>/automations/v1/status.yml` :
+   `workspaces/<workspace>/automations/v1/status.yml` :
    ```yaml
    slug: v1/status
    name: API/v1/Status
@@ -236,7 +302,7 @@ By default, `<appName>` = workspace slug. If the user supplies a different name
    output: '{{result}}'
    ```
 
-   `<workspace>/automations/on-app-greeting-requested.yml` :
+   `workspaces/<workspace>/automations/on-app-greeting-requested.yml` :
    ```yaml
    slug: on-app-greeting-requested
    name: On App Greeting Requested
@@ -273,7 +339,7 @@ By default, `<appName>` = workspace slug. If the user supplies a different name
    from the MCP env (same logic as bootstrap step 4, only `.env`).
 2. Read `<appDir>/.prismeai/last-pull.json` if present.
 3. If missing or older than 24h, do a defensive sync before editing :
-   - **DSUL (automations + imports + index.yml)** : `mcp__prisme-ai-builder__pull_workspace(workspaceId, path: <workspace>)` (pulls into the **workspace root**, not `<appDir>`).
+   - **DSUL (automations + imports + index.yml)** : `mcp__prisme-ai-builder__pull_workspace(workspaceId, path: workspaces/<workspace>)` (pulls into the **DSUL workspace folder**, never into `<appDir>`).
    - **Source files + bundle config** : direct API (the MCP doesn't cover these) :
      ```bash
      curl -fsS -H "Authorization: Bearer $TOKEN" \
@@ -282,7 +348,7 @@ By default, `<appName>` = workspace slug. If the user supplies a different name
        "$API_URL/workspaces/$WORKSPACE_ID" | jq '.config.value.bundles'
      ```
      Remote `metadata.path` is canonical (`src/App.tsx`, etc. — NOT prefixed
-     with `pages/<appName>/`). The local source files live in `<appDir>/<path>`.
+     with the app-dir path). The local source files live in `<appDir>/<path>`.
      The mapping is **local `<appDir>/<path>` ↔ remote `metadata.path = <path>`** —
      this asymmetry is intentional, see [[convention_react_app_nested]].
      The exact path/payload contract lives in `<appDir>/scripts/pull.mjs` —
@@ -302,7 +368,7 @@ Before editing :
 3. Read `<appDir>/src/types.ts` (the `AppProps` contract).
 4. Read `<appDir>/src/App.tsx` (entry point).
 5. If the request touches automations :
-   - `Glob: <workspace>/automations/**/*.yml` → list, read concerned files. (Automations live at the **workspace root**, not in `<appDir>`.)
+   - `Glob: workspaces/<workspace>/automations/**/*.yml` → list, read concerned files. (Automations live in the DSUL folder `workspaces/<workspace>/`, never in `<appDir>`.)
    - Call `mcp__prisme-ai-builder__get_prisme_documentation(section: "automations")` for DSUL syntax.
 6. Read `<appDir>/scripts/deploy.mjs` only when you need exact endpoint/payload shapes for direct fetch calls.
 
@@ -352,20 +418,37 @@ These come straight from `pptx-generator/AGENTS.md`. They MUST be respected.
    `PRISMEAI_API_KEY` (`x-prismeai-api-key`) in scripts/deploy.mjs.
 
 7. **lucide icons** : stick to the curated subset (~250 icons) guaranteed at
-   runtime. Importing a missing icon = "X is undefined" at load time.
+   runtime. A missing icon resolves to `undefined` at load time → the app crashes
+   with **Minified React error #130** ("Element type is invalid … got: undefined").
+   **Typecheck does NOT catch this** (TS sees the full npm package; the socle ships a
+   subset). When in doubt, use a CSS spinner + inline SVG instead — see bootstrap step 7b.
 
 8. **Tailwind classes** : stick to standard utility classes present in the
-   platform's pre-compiled CSS. Arbitrary one-offs won't style.
+   platform's pre-compiled CSS. **Arbitrary value classes (`h-[70vh]`,
+   `w-[min(90vw,720px)]`, `max-w-[24rem]`, `min-w-[16rem]`…) are NO-OPS** — the
+   renderer ships a pre-compiled stylesheet without JIT, so bracket utilities
+   never match and silently do nothing (symptom: a "fullscreen" modal that
+   shrinks to its content). For any non-standard dimension/transform, use an
+   inline `style={{…}}` instead. Stick to safe theme tokens too
+   (`bg-background/card/muted/accent`, not `bg-popover`).
 
-9. **Don't touch `src/components/ui/*`** without explicit user request — that's
-   shadcn scaffold, regenerated by the in-builder AI.
+9. **Tooltips** : never rely on the native `title=` attribute for tooltips —
+   it's inconsistent and unstyled. Use a real floating tooltip: the scaffold's
+   `@/components/ui/tooltip` (Radix, `@radix-ui/react-tooltip` is in the socle).
+   Wrap the subtree in one `<TooltipProvider>` and use
+   `<Tooltip><TooltipTrigger asChild>{button}</TooltipTrigger><TooltipContent>…</TooltipContent></Tooltip>`
+   (a tiny `Tip({label,children})` helper keeps it DRY). Keep `aria-label` on
+   icon-only buttons for a11y; drop the redundant `title`.
+
+10. **Don't touch `src/components/ui/*`** without explicit user request — that's
+    shadcn scaffold, regenerated by the in-builder AI.
 
 ---
 
 ## Phase 5 — Make the edits
 
-- **React** : `Edit` / `Write` files under `<appDir>/src/` (e.g. `<workspace>/pages/<appName>/src/`).
-- **Automations** : `Edit` / `Write` YAML files under `<workspace>/automations/` (workspace root — same level as the `pages/` parent, NOT inside the app subfolder).
+- **React** : `Edit` / `Write` files under `<appDir>/src/` (e.g. `pages/<workspace>/src/`).
+- **Automations** : `Edit` / `Write` YAML files under `workspaces/<workspace>/automations/` (the DSUL folder — a SIBLING of the app dir `pages/<workspace>/`, NOT its parent and NOT inside it).
   Apply the DSUL conventions from skill `04-workspace-edit` :
   - camelCase slugs (no `/`).
   - Names use `/` for folder scoping on private automations.
@@ -391,7 +474,12 @@ Fix any 🔴 MAJOR issue before moving on.
 
 ---
 
-## Phase 7 — Targeted push (MCP for automations, curl for the React side)
+## Phase 7 — Targeted push (deploy workspace + page)
+
+Two equivalent paths: **all-MCP** (push_workspace + upload_file + call_api PATCH +
+publish_app — see the MCP recipe just below, no local creds) or **MCP for automations
++ curl for the React side** (needs the JWT from Phase 2). Pick MCP-only when you don't
+have a local token.
 
 Build an action plan from the diff and execute it. Show the plan to the user and
 get explicit confirmation before any remote write.
@@ -399,6 +487,36 @@ get explicit confirmation before any remote write.
 **Auth for direct fetch** :
 - Header : `Authorization: Bearer <apiKey>` (the JWT from Phase 2).
 - Base URL : `apiUrl` (from Phase 2 ; already includes `/v2`).
+
+### Deploy the workspace + its page entirely via the prisme-ai-builder MCP (no local creds)
+
+When you don't have / don't want to use a local JWT for `deploy.mjs`/curl, the **whole
+deploy (workspace DSUL + page bundle + config) goes through MCP tools**. This is the
+validated `google-workspaces` recipe (2026-06-25). Same order-of-operations as below ;
+each curl step maps to an MCP tool :
+
+1. **DSUL** → `mcp__prisme-ai-builder__push_workspace(workspaceId, path: "<repo>/workspaces/<workspace>", prune: false)`.
+   Targets the DSUL-pure workspace folder. `prune:false` so it can't delete remote files
+   it doesn't know about (the page bundle, source files). **NEVER** pass the app dir
+   `pages/<workspace>` — push only ever sees `workspaces/<workspace>`.
+2. **Build** → `cd <repo>/pages/<workspace> && npm run build` → `dist/bundle.js`.
+3. **Upload bundle** (public, no metadata) → `mcp__prisme-ai-builder__upload_file(workspaceId, path: "<repo>/pages/<workspace>/dist/bundle.js", public: true)` → grab the new URL.
+   (MCP `upload_file` drops `metadata`, so it's fine for the bundle but NOT for SOURCE
+   files that need `metadata.path` — those still go via curl, see Action matrix.)
+4. **PATCH config** → `mcp__prisme-ai-builder__call_api(method: PATCH, path: "/workspaces/<id>", body: {config:{block, schema, value}})`.
+   First `call_api(GET /workspaces/<id>)` → `.config`, then set `config.block` **and**
+   `config.value.bundles[<slug>].bundle` to the new URL, **preserving every other key**
+   (`mcpTools`, `appSecret`, auth). NEVER send a partial `value` — `config.value` is
+   replace-in-whole. For an app+mcp connector with an inline config UI, point BOTH
+   `block` and `bundles[<slug>]` at the same new bundle.
+5. **publish_app** (app+mcp connectors only) → `mcp__prisme-ai-builder__publish_app(workspaceId)`.
+   Snapshots `config.block` into the **published App** so tenant instances pick up the
+   new bundle — WITHOUT it, instances keep the old block (the config UI looks stale).
+   Publish **before** deleting the old bundle file.
+6. **Cleanup + smoke test** → delete orphan old bundle(s) via `call_api(DELETE /workspaces/<id>/files/<fileId>)` ; fetch the new bundle and assert it exports CJS `module.exports.default` (esbuild form `Et(Zt,{default:()=>App});module.exports=...`).
+
+See [[project_app_mcp_config_block_sync]] for the full recipe + the `publish_app`
+gotcha. For the curl/JWT variant, follow the Action matrix below.
 
 ### 🚨 CRITICAL — Order of operations (learned the hard way)
 
@@ -434,7 +552,7 @@ Tenants see the change immediately — no app instance reinstall needed.
 → **Always run in this exact order**, with the bundles PATCH **last** :
 
 ```
-1. push_workspace      (DSUL: automations + imports + index.yml + pages + security)
+1. push_workspace      (DSUL only — targets workspaces/<workspace>: automations + imports + index.yml + legacy pages + security ; NEVER the app dir pages/<workspace>)
 2. Upload bundle        (POST /files, public=true)
 3. Upload source files  (POST /files, metadata.type=source, public=false)
 4. PATCH config.value   (FULL value: appSecret + mcpTools + bundles + everything from local index.yml > config.value, plus the new bundles entry — never a partial PATCH)
@@ -455,14 +573,14 @@ before step 4 so you can roll back on smoke-test failure.
 | Automation added (`automations/foo.yml` new) | **MCP** | `validate_automation` then `create_automation(workspaceId, slug, ...)` |
 | Automation modified | **MCP** | `validate_automation` then `update_automation(workspaceId, slug, ...)` |
 | Automation deleted | **MCP** | `delete_automation(workspaceId, slug)` |
-| > 5 automations touched, OR imports/pages/security changed | **MCP** | `push_workspace(workspaceId, path, message)` for the whole DSUL bulk |
-| File under `src/**` changed | **curl** | Mirror `scripts/deploy.mjs > collectSourceFiles`: 6 root-of-`<appDir>` files (`package.json`, `tsconfig.json`, `vite.config.ts`, `tailwind.config.js`, `postcss.config.js`, `index.html`) + everything under `<appDir>/src/**` (except `.yml`/`.yaml` and files matching `* copy*`). For each: SHA-256, GET `/workspaces/:id/files?metadata.path=<path>&metadata.type=source` to find existing, DELETE old if hash differs, then POST multipart with `metadata.path=<canonicalPath>` (e.g. `src/App.tsx`, **never** `pages/<appName>/src/App.tsx`) + `metadata.type=source` + `metadata.hash` + `public=false`. **This is NOT optional** — without it, the Studio source-view stays empty. **Do NOT use `mcp__prisme-ai-builder__upload_file`**: it drops the `metadata` parameter silently — [[feedback_mcp_upload_file_metadata_dropped]]. |
+| > 5 automations touched, OR imports/pages/security changed | **MCP** | `push_workspace(workspaceId, path: workspaces/<workspace>, message)` for the whole DSUL bulk — `path` is always the DSUL folder, never `pages/<workspace>` |
+| File under `src/**` changed | **curl** | Mirror `scripts/deploy.mjs > collectSourceFiles`: 6 root-of-`<appDir>` files (`package.json`, `tsconfig.json`, `vite.config.ts`, `tailwind.config.js`, `postcss.config.js`, `index.html`) + everything under `<appDir>/src/**` (except `.yml`/`.yaml` and files matching `* copy*`). For each: SHA-256, GET `/workspaces/:id/files?metadata.path=<path>&metadata.type=source` to find existing, DELETE old if hash differs, then POST multipart with `metadata.path=<canonicalPath>` (e.g. `src/App.tsx`, **never** prefixed with the app-dir path like `pages/<workspace>/src/App.tsx`) + `metadata.type=source` + `metadata.hash` + `public=false`. **This is NOT optional** — without it, the Studio source-view stays empty. **Do NOT use `mcp__prisme-ai-builder__upload_file`**: it drops the `metadata` parameter silently — [[feedback_mcp_upload_file_metadata_dropped]]. |
 | `dist/bundle.js` rebuilt | **curl** | POST multipart `/workspaces/:id/files` (`public=true`), grab the URL returned. |
 | Bundles PATCH (step 4) | **curl** | PATCH `/workspaces/:id` with `{ config: { value: <FULL value incl. bundles> } }`. Recompute the full `config.value` from the local `index.yml` + add the new `bundles[<slug>]` entry. |
 | After PATCH succeeds | **curl** | DELETE orphan bundle/embed files not in current `bundles[*]`. |
 | Smoke test (post-push) | **curl** | GET `/pages/<slug>/_bundle`, fetch the JS returned, parse with `new Function()`, assert `module.exports.default` exists. |
 | Version snapshot | **curl** | POST `/workspaces/:id/versions` with `{ "description": "..." }`. |
-| End | local | Refresh `<workspace>/.prismeai/last-pull.json` with new hashes. |
+| End | local | Refresh `<appDir>/.prismeai/last-pull.json` (i.e. `pages/<workspace>/.prismeai/last-pull.json`) with new hashes. |
 
 ### Concrete curl examples
 
@@ -481,8 +599,8 @@ curl -fsS -X POST "$API_URL/workspaces/$WORKSPACE_ID/files" \
 #  the source-file uploads below.)
 
 # 3. Upload a source file (private)
-#    Note: metadata.path is CANONICAL (src/App.tsx), NOT prefixed with pages/<appName>/.
-#    Local path = <appDir>/src/App.tsx ; remote metadata.path = src/App.tsx. Asymmetric on purpose.
+#    Note: metadata.path is CANONICAL (src/App.tsx), NOT prefixed with the app-dir path.
+#    Local path = <appDir>/src/App.tsx (= pages/<workspace>/src/App.tsx) ; remote metadata.path = src/App.tsx. Asymmetric on purpose.
 HASH=$(shasum -a 256 <appDir>/src/App.tsx | cut -d' ' -f1)
 curl -fsS -X POST "$API_URL/workspaces/$WORKSPACE_ID/files" \
   -H "Authorization: Bearer $TOKEN" \
@@ -495,12 +613,12 @@ curl -fsS -X POST "$API_URL/workspaces/$WORKSPACE_ID/files" \
 # parameter silently — see [[feedback_mcp_upload_file_metadata_dropped]].
 
 # 4. PATCH config.value (FULL — read local index.yml first, then merge bundles)
-#    Reconstruct config.value from the workspace ROOT index.yml (yq or python yaml),
+#    Reconstruct config.value from the DSUL index.yml (workspaces/<workspace>/index.yml ; yq or python yaml),
 #    then jq-merge the new bundles entry, then PATCH.
 #    ⚠️ Preserve socleVersion: "1.0.0" — required for Studio to surface the SPA page.
 python3 -c "
 import yaml, json, sys
-with open('<workspace>/index.yml') as f:
+with open('workspaces/<workspace>/index.yml') as f:
     doc = yaml.safe_load(f)
 print(json.dumps(doc['config']['value']))" > /tmp/config-value.json
 
@@ -540,12 +658,11 @@ and curl actions queued. Wait for user OK.
 ## Phase 8 — Post-push report
 
 1. Build the access URL : the `studioUrl` (Phase 2) + `/apps/<bundleKey>`
-   (`<bundleKey>` defaults to the workspace slug in mono-app, or
-   `<workspaceSlug>-<appName>` in multi-app — cf. [[convention_react_app_nested]]).
-   Print it as a clickable link.
+   (`<bundleKey>` is the workspace slug — one app per workspace, named after it ;
+   cf. [[convention_react_app_nested]]). Print it as a clickable link.
 2. Report :
    - Workspace ID + name
-   - App name (`<appName>`) + local path (`<workspace>/pages/<appName>/`)
+   - App name (`<appName>`, = workspace slug) + local path (`pages/<workspace>/`)
    - Env (sandbox / staging / prod)
    - Version (`PRISMEAI_APP_VERSION`)
    - Automations touched : counts (created / updated / deleted) — and call out
@@ -783,7 +900,7 @@ Phase 7 mostly applies. Additions :
 | 401 from webhook **with** runtime event | DSUL-level (`session.tenantId` empty, ticket invalid, etc.) | Read `payload.output.error` in the event. |
 | Custom HTTP header set by client doesn't appear in runtime `{{headers}}` | api-gateway strip | Move the value into `body.<field>`. [[feedback_api_gateway_strips_headers]] |
 | Bundle "disappears" between sessions (different file ID, build time changed) | User pressed UI "Déployer" in the studio | Re-push your local bundle ; delete orphan embed file. [[feedback_ui_deploy_resets_bundle]] |
-| `[AppRenderer] Failed to load bundle: ModuleLoadError … SyntaxError: Unexpected token '<'` (thrown in `new Function`) | `config.value.bundles[<slug>].bundle` is still the placeholder `<TO_FILL_AT_BUNDLE_UPLOAD>` (or any URL serving HTML/404) → the renderer fetches an HTML page and `new Function("<…")` chokes on `<`. The SPA bundle was never deployed. | `curl .../v2/pages/<slug>/_bundle` — if `.bundles[<slug>].bundle` is `<TO_FILL…>` or not a `/v2/files/...` URL, the bundle was never wired. Fix = redo Phase 7 (build → upload bundle → **PATCH full `config.value`** with the real URL). **NOT** `publish_app` (App/MCP def only, ignores the bundle) nor `push_workspace` (pushes the whole `pages/<name>/` incl. `node_modules`). Trap: the workspace-doc `config.value.bundles` may already show a real URL while `_bundle` still serves the placeholder (stale snapshot) — the PATCH resyncs `_bundle`. [[feedback_app_mcp_spa_bundle_placeholder]] |
+| `[AppRenderer] Failed to load bundle: ModuleLoadError … SyntaxError: Unexpected token '<'` (thrown in `new Function`) | `config.value.bundles[<slug>].bundle` is still the placeholder `<TO_FILL_AT_BUNDLE_UPLOAD>` (or any URL serving HTML/404) → the renderer fetches an HTML page and `new Function("<…")` chokes on `<`. The SPA bundle was never deployed. | `curl .../v2/pages/<slug>/_bundle` — if `.bundles[<slug>].bundle` is `<TO_FILL…>` or not a `/v2/files/...` URL, the bundle was never wired. Fix = redo Phase 7 (build → upload bundle → **PATCH full `config.value`** with the real URL). **NOT** `publish_app` (App/MCP def only, ignores the bundle) nor `push_workspace` (it only ships the DSUL folder `workspaces/<workspace>` and never updates the runtime `config.value`, so it can't wire the bundle pointer). Trap: the workspace-doc `config.value.bundles` may already show a real URL while `_bundle` still serves the placeholder (stale snapshot) — the PATCH resyncs `_bundle`. [[feedback_app_mcp_spa_bundle_placeholder]] |
 
 ### 9.8 — Smoke tests
 
