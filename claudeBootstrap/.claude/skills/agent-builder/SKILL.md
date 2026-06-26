@@ -126,6 +126,28 @@ in the prismeai-workspaces repo (built/deployed via `/workspace-page-implement`)
 as the user (`_afCall asUser: true`), and persists per-(workspace, org) state in
 `global.deploys`. The agent's **org = the user's active studio org**, **owner = the user**.
 
+### MCP tools = capability references (env/org-agnostic) — NEVER hardcode URLs
+
+In `config.value.agent.tools`, store an App+MCP tool as a **capability reference**:
+`{ type: mcp, capability: <catalog name> }` — NOT a full `{ server, auth, … }` with URLs.
+At deploy, the `deploy` webhook looks `capability` up in the **ACTIVE org's capabilities
+catalog** (`/workspaces/slug:capabilities/webhooks/v1/servers?type=mcp&search=<name>`, exact
+name match) and builds the real tool: `server` (= the entry's `config_schema.properties.
+server.default`) + the OAuth **`auth` block** (`{type: oauth, connect_url, status_url,
+disconnect_url, scopes}` from the entry's `auth`). Why this matters:
+- **Env-agnostic**: the catalog is per-env, so the same definition resolves to sandbox URLs
+  on sandbox and prod URLs on prod — no host swap when pushing a definition across envs.
+- **Per-org**: the catalog is per-org, so cd76 can register its own connector under the
+  **same capability name** (`sharepoint_next`) pointing at `slug:sharepoint-cd76`, and the
+  deploy picks it up automatically for that org.
+- **OAuth always wired**: the `auth` block comes from the catalog → the OAuth "Connect"
+  popup always appears (agent-factory `_route-tool` gates it on the tool's `auth` block; a
+  tool without `auth` silently runs unauthenticated and never shows a Connect button).
+- If the capability isn't in the target org's catalog, `deploy` returns `CapabilityNotFound`
+  with the list of available capabilities. **Pre-req**: the connector must be **registered in
+  each target env/org's capabilities catalog** (`POST …/v1/servers`, or the connector SPA's
+  CatalogPublish) — deploying the connector workspace alone does NOT add it to the catalog.
+
 > Migration note: `data-analyst-cd76` still carries a legacy per-agent deploy SPA +
 > automations (the POC). New agents should NOT get one — they only need
 > `config.value.agent` + the label. Slimming the POC is a separate cleanup step.
