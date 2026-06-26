@@ -97,16 +97,18 @@ Treat each bullet as a checklist item when bootstrapping a new app.
    platform currently exposes only ONE bundle per workspace** : if you ever need
    multiple views, route them via `?status=`, `?view=`, or `?screen=` query
    params inside the single bundle, not separate `bundles.X` entries.
-8. **Tailwind `dark:` classes are no-ops in the Studio AppRenderer** — the
-   renderer does NOT toggle a `dark` class on `<html>` / `<body>`, so the
-   default `darkMode: 'media'` of starter-spa's `tailwind.config.js`
-   never activates. For dark-mode-aware UI, inject a `<style>` block in
-   a `useEffect` with CSS custom properties gated by
-   `@media (prefers-color-scheme: dark)` (the same technique embed.css uses
-   — see Phase 9). Avoid `bg-X dark:bg-Y` on the root wrapper too : if the
-   app is rendered inside a Studio shell, a full-bleed background paints a
-   visible frame around the content in the host's theme. Let the host
-   provide the page background ; only style the card itself.
+8. **Follow the STUDIO theme via a `.dark` class — NEVER `@media (prefers-color-scheme)`.**
+   The Studio toggles a `.dark` class on `<html>` per its own theme (default light;
+   app-mcp Gotcha 10) and the app inherits it. So gate the dark palette on the **`.dark`
+   selector** in `globals.css` (`.dark { --background: …; }`). **Do NOT** gate it on
+   `@media (prefers-color-scheme: dark)` — that follows the **OS**, not the studio, so a
+   user with a dark OS gets a dark app inside a light studio (the classic "forgot the
+   light theme" bug — hit on AgentBuilderSync 2026-06-26). `darkMode: 'class'` in
+   `tailwind.config.js` is the matching setting if you use `dark:` utilities (raw `.dark
+   { --vars }` works regardless). Avoid `bg-X dark:bg-Y` on the root wrapper too : if the
+   app is rendered inside a Studio shell, a full-bleed background paints a visible frame
+   around the content in the host's theme. Let the host provide the page background ;
+   only style the card itself.
 9. **Localize via `navigator.language`** when the app surfaces user-facing
    strings. Detection walks `navigator.languages` then falls back to
    `navigator.language` and finally to a hard default (usually `en`).
@@ -255,16 +257,16 @@ workspace : `<appDir>` = `pages/<workspace>/`.
        `ModuleLoadError` prints the exact "Available modules" list — trim to match
        if any other module surfaces. See [[feedback_starter_spa_externals_drift]].
 
-    b. **Convert dark mode to a media query in `src/styles/globals.css`.** starter-spa
-       ships a class-based `.dark { … }` block, but the AppRenderer **never toggles a
-       `.dark` class** → the app is permanently forced to light and ignores the user's
-       OS theme. Rewrite the block as:
-       ```css
-       /* was: .dark { --background: …; … } */
-       @media (prefers-color-scheme: dark) { :root { --background: …; … } }
-       ```
-       Also drop the full-bleed `body { @apply bg-background … }` (keep only
-       `text-foreground`) so the app doesn't paint a frame in the host's theme. Cf. rule 8.
+    b. **Keep dark mode CLASS-based (`.dark { … }`) in `src/styles/globals.css` — do NOT
+       convert it to `@media (prefers-color-scheme)`.** The Studio toggles a `.dark` class
+       on `<html>` per its theme (app-mcp Gotcha 10), so the starter-spa's `.dark { … }`
+       block is exactly right: the app follows the STUDIO theme. An `@media
+       (prefers-color-scheme: dark)` override follows the **OS** instead → dark app inside a
+       light studio (the "forgot the light theme" bug, hit on AgentBuilderSync 2026-06-26).
+       Set `darkMode: 'class'` in `tailwind.config.js` if you use `dark:` utilities (raw
+       `.dark { --vars }` works regardless). Also drop the full-bleed `body { @apply
+       bg-background … }` (keep only `text-foreground`) so the app doesn't paint a frame in
+       the host's theme. Cf. rule 8.
 
     c. **Don't rely on lucide-react icons beyond a tiny verified set.** lucide-react is
        external (socle) and the socle ships only a **curated subset** (~250 icons). A
