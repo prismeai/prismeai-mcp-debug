@@ -54,9 +54,14 @@ function MaintainerSetup(props: Props) {
   const centralWh = (s: string) => `${host}/workspaces/slug:${centralSlug}/webhooks/${s}`
   const catalogAuth: CatalogAuth = {
     type: 'oauth2',
-    status_url: centralWh('checkAuthStatus'),
-    connect_url: centralWh('initiateOAuth'),
-    disconnect_url: centralWh('disconnectOAuth'),
+    // MUST match the connector's actual webhook slugs (oauthConnect/oauthStatus/
+    // oauthDisconnect) — NOT the legacy initiateOAuth/checkAuthStatus/disconnectOAuth
+    // names. A mismatch makes the catalog entry's connect_url 404 ("no matching
+    // trigger for endpoint initiateOAuth") so agents can't initiate OAuth, even though
+    // the per-agent Install button (which uses wh('oauthConnect')) works. See Gotcha 33.
+    status_url: centralWh('oauthStatus'),
+    connect_url: centralWh('oauthConnect'),
+    disconnect_url: centralWh('oauthDisconnect'),
     scopes: (scopes || GOOGLE_SCOPES).split(/[\s,]+/).filter(Boolean),
   }
 
