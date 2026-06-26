@@ -1,6 +1,11 @@
 slug: deploy
-name: deploy
-description: Create-or-update the Agent Factory agent from the manifest, then publish it.
+name: Deploy this agent
+description: >-
+  Deploy (create-or-update + publish) the agent INTO THE ACTIVE SESSION ORG, then
+  read it back to confirm where it landed. Run this from the workspace PLAYGROUND
+  after switching the studio to the target organization: the agent is created in
+  your active org (session.org.slug) and you become its owner. There is no org
+  argument — the org follows your session, so changing target = switch org, re-run.
 when:
   endpoint: true
 arguments:
@@ -20,57 +25,74 @@ arguments:
     type: string
   visibility:
     type: string
-  token_budget:
-    type: number
-  tool_call_budget:
-    type: number
-  max_turns:
-    type: number
 do:
   - comment: >-
-      Always invoked through execute_automation, so the arguments arrive at the
-      top level (not under body.*). The skill passes the FULL desired state, so
-      deploy is declarative: the remote agent ends up matching the manifest.
+      Declarative deploy AS THE TRIGGERING USER (via _afCall asUser:true). The skill
+      passes the FULL desired state; the agent-factory webhook reads org from
+      session.org.slug and owner from user.id, so the deploy lands in whatever org is
+      active in the playground. Empty agentId → create, otherwise → update.
+  - set:
+      name: payload
+      value:
+        name: '{{name}}'
+        instructions: '{{instructions}}'
+        model: '{{model}}'
+        temperature: '{{temperature}}'
+        profile: '{{profile}}'
   - comment: >-
-      NOTE: the Agents app does NOT currently persist token_budget/tool_call_budget/
-      max_turns (outside its schema) — they are forwarded here for forward-compat, but
-      the skill MUST also PATCH /v1/agents/<id> with these after deploy (authoritative).
+      Always send `tools` (default []) so deploy is truly declarative: an empty
+      manifest clears remote tools. PATCH/POST only act on tools when the key is
+      present in the body, and an empty array is falsy — hence the explicit default.
+  - conditions:
+      '{{tools}}':
+        - set:
+            name: payload
+            type: merge
+            value:
+              tools: '{{tools}}'
+      default:
+        - set:
+            name: payload
+            type: merge
+            value:
+              tools: []
   - conditions:
       '{{agentId}}':
-        - Agents.updateAgent:
-            agent_id: '{{agentId}}'
-            updates:
-              name: '{{name}}'
-              instructions: '{{instructions}}'
-              model: '{{model}}'
-              temperature: '{{temperature}}'
-              profile: '{{profile}}'
-              tools: '{{tools}}'
-              token_budget: '{{token_budget}}'
-              tool_call_budget: '{{tool_call_budget}}'
-              max_turns: '{{max_turns}}'
+        - _afCall:
+            asUser: true
+            endpoint: v1/agents/{{agentId}}
+            method: PATCH
+            body: '{{payload}}'
             output: agent
       default:
-        - Agents.createAgent:
-            name: '{{name}}'
-            instructions: '{{instructions}}'
-            model: '{{model}}'
-            temperature: '{{temperature}}'
-            profile: '{{profile}}'
-            tools: '{{tools}}'
-            token_budget: '{{token_budget}}'
-            tool_call_budget: '{{tool_call_budget}}'
-            max_turns: '{{max_turns}}'
+        - _afCall:
+            asUser: true
+            endpoint: v1/agents
+            method: POST
+            body: '{{payload}}'
             output: agent
   - conditions:
       '{% !{{agent.error}} and {{agent.id}} %}':
-        - Agents.publishAgent:
-            agent_id: '{{agent.id}}'
+        - _afCall:
+            asUser: true
+            endpoint: v1/agents/{{agent.id}}/publish
+            method: POST
             body:
               visibility: '{{visibility}}'
             output: published
+        - comment: >-
+            Read the agent back (as the user) to confirm the org it landed in and the
+            resolved owner — this replaces a separate whoAmI / org-selection step.
+        - _afCall:
+            asUser: true
+            endpoint: v1/agents/{{agent.id}}
+            method: GET
+            output: created
 output:
   id: '{{agent.id}}'
   name: '{{agent.name}}'
   status: '{{published.status}}'
+  org: '{{created.orgSlug}}'
+  owner: '{{created.owner_id}}'
   error: '{{agent.error}}'
+  errorMessage: '{{agent.message}}'

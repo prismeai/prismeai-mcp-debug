@@ -1,5 +1,5 @@
 slug: runTests
-name: runTests
+name: Run the test battery
 description: Inline test battery — sends each test input to the deployed agent and asserts the answer.
 when:
   endpoint: true
@@ -18,24 +18,24 @@ do:
   - repeat:
       'on': '{{tests}}'
       do:
-        - Agents.sendMessage:
-            agent_id: '{{agentId}}'
-            message:
-              message_id: test-{{run.correlationId}}-{{$index}}
-              role: user
-              parts:
-                - type: text
-                  text: '{{item.input}}'
+        - _afCall:
+            endpoint: v1/agents/{{agentId}}/messages/send
+            method: POST
+            body:
+              message:
+                message_id: test-{{run.correlationId}}-{{$index}}
+                role: user
+                parts:
+                  - type: text
+                    text: '{{item.input}}'
             output: response
         - comment: >-
             Extraction + assertion run in Custom Code so arbitrary LLM output
             never reaches a DSUL expression; a literal template-brace or operator
             char in the answer would otherwise crash the whole suite.
-        - Custom Code.run:
-            function: evalTest
-            parameters:
-              response: '{{response}}'
-              test: '{{item}}'
+        - Custom Code.evalTest:
+            response: '{{response}}'
+            test: '{{item}}'
             output: assertion
         - conditions:
             '{{assertion.passed}}':

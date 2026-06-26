@@ -47,46 +47,88 @@ agents/<slug>/
 ├── index.yml                # workspace config + secret schema
 ├── security.yml
 ├── imports/
-│   ├── Agents.yml           # Agents app (agent lifecycle)
+│   ├── Agents.yml           # Agents app (used by runTests for sendMessage)
 │   ├── Custom Code.yml      # evalTest() — robust answer extraction + assertion
 │   └── <connector>.yml      # one per installed App+MCP connector
-└── automations/
-    ├── deploy.yml           # create-or-update + publish the agent
-    ├── runTests.yml         # inline test runner (sendMessage + Custom Code assert)
-    └── whoAmI.yml           # resolve the agent's org (getAgent.orgSlug)
+└── automations/             # FLAT — every file at this level (see slug=path rule below)
+    ├── deploy.yml           # slug deploy · name "Deploy this agent" — run AS THE USER
+    ├── runTests.yml         # slug runTests · name "Run the test battery"
+    ├── _afCall.yml          # slug _afCall · name "utils/…" · agent-factory webhook (asUser | org-key)
+    └── whoAmI.yml           # slug whoAmI · name "utils/…" (legacy) — deploy now returns org
 ```
+
+⚠️ **`push_workspace` keys each automation by its FILE PATH relative to `automations/`,
+and SILENTLY DROPS any file whose `slug:` ≠ that path.** So `automations/utils/_afCall.yml`
+(slug `_afCall`) is never imported — the deploy then 404s with "Automation not found:
+_afCall", and a webhook at `/webhooks/getContext` 404s "no matching trigger". Keep helper
+**files flat at `automations/<slug>.yml`** (slug = filename). The studio "utils" **folder is
+purely cosmetic via the `name:` prefix** (`name: utils/Agent Factory API call`) — it groups
+the UI without touching the slug. A nested file is only OK if its slug includes the folder
+(e.g. `automations/v1/status.yml` with `slug: v1/status`). Verified on cd76 2026-06-26.
 
 Scaffold templates for every file live in `templates/` next to this SKILL.md.
 
 ## Non-negotiables
 
-- Drive the agent lifecycle **only through the `Agents` app** (`createAgent`,
-  `updateAgent`, `getAgent`, `addTool`, `removeTool`, `publishAgent`, `sendMessage`,
-  `deleteAgent`). Never `fetch` Agent Factory directly.
+- **Deployment goes through the AgentBuilderSync app** — a single central dashboard
+  (one per environment), NOT a per-agent SPA or playground run. The agent workspace only
+  needs its definition in `config.value.agent` (compiled from `AGENT.md` + `agent.yml` at
+  push time) **plus the label `agent-builder`** to be discoverable. The app lists the
+  labeled workspaces, reads each definition, lets the user pick a model from the active
+  org's allowed models, and deploys the selected agent **as the user** (so it lands in the
+  **active session org**, **human as owner**). The skill does NOT create agents via
+  `call_api`, does NOT pick an org, and does NOT ship a deploy SPA per agent. Give the
+  user the app URL for the env (see "AgentBuilderSync app" below). (Test sending still
+  uses the `Agents` app inside `runTests`; never `fetch` Agent Factory directly.)
 - `AGENT.md` and `agent.yml` are the source of truth. Never mutate the remote agent
   in a way that drifts from them — always update the files, then `deploy`.
-- The `Agents` app authenticates with a **Governance org API key (`iak_...`)** set as
-  the workspace secret `agentFactoryApiKey` on each target environment. Apps the user
-  installs use their own credentials (`x-prismeai-api-key`), not this key.
+- Deploy needs **no Governance org key** — it runs as the user. The
+  `agentFactoryApiKey` secret (a `iak_...` org key) is **optional/legacy**, used only by
+  the `whoAmI` org-key helper; leave it unset unless you keep using that helper. Apps the
+  user installs use their own credentials (`x-prismeai-api-key`), unrelated to this.
 - Connectors are **sandbox-first**. Default every push / deploy / id to `sandbox`
   unless the user explicitly asks for `prod`.
-- The deployment **organization** = the org of the caller that creates the agent, and
-  the **creator becomes the owner**. Cross-org: the user must be a **member** of the
-  target org; create via `call_api` with **`apiKey` (org key) + `withUserBearer: true`**
-  so the human owns it and the full lifecycle works. Never key-only for a managed agent
-  (creates an unmanageable key-owned orphan). See Operation 6b. Store
-  `deployedIds.<env>.org`; propose only orgs the user is a **member** of
-  (`call_api /me` → `organizations`), never the full `/orgs` platform list.
+- The deployment **organization = the org active in the studio when the user deploys
+  via the app** (`session.org.slug`), and the **user becomes the owner**
+  (`owner_id = user.id`). To deploy elsewhere, the user switches org in the studio and
+  re-deploys — the skill never lists or selects orgs. The user must be a **member of the
+  target org** with rights to manage agents (else the deploy 403/401s). See Operation 7
+  (and Operation 6b for the underlying mechanism).
 - Confirm the spec with the user before creating files (scaffold) or before the first
   remote `deploy`. Subsequent edits + redeploys need no re-confirmation unless the
   user is changing environment.
-- Run `validate_automation` on `deploy.yml` and `runTests.yml` after any change to
-  them, and after scaffolding a new workspace.
+- Run `validate_automation` on the changed automation (`deploy.yml`, `_afCall.yml`,
+  `runTests.yml`, …) after any change, and on the folder after scaffolding a new workspace.
 - A workspace's React app (if any) lives in the sibling top-level `pages/<slug>/` folder
   (alongside `workspaces/`/`agents/`, named after the workspace), never inside the
   agent folder. Agent workspaces are DSUL-pure and have none by default.
   `push_workspace` targets the agent's DSUL folder (`agents/<slug>/`) only and never
   touches `pages/<slug>/` — see the project-wide rule.
+
+## AgentBuilderSync app (how agents are deployed)
+
+Deployment is centralized in **one app per environment** — the `agent-builder-sync`
+workspace + its SPA. It discovers every workspace labeled **`agent-builder`**, reads each
+one's `config.value.agent`, and deploys the chosen agent **as the user** into the active
+org. So an agent workspace is just a **definition holder**: `config.value.agent` (compiled
+from `AGENT.md` + `agent.yml`) + the `agent-builder` label. No per-agent deploy SPA.
+
+**App coordinates (recall and hand the URL to the user when deploying):**
+
+| Env | Workspace id | App URL |
+|-----|-------------|---------|
+| sandbox | `65xmBBG` | `https://sandbox.prisme.ai/apps/agent-builder-sync` |
+| prod | _not deployed yet_ | _deploy the central app to prod first, then record its id + `https://<prod-studio>/apps/agent-builder-sync`_ |
+
+The app's own DSUL/SPA lives at `agents/agent-builder-sync/` + `pages/agent-builder-sync/`
+in the prismeai-workspaces repo (built/deployed via `/workspace-page-implement`). Its
+`deploy` webhook refetches the target workspace's `config.value.agent`, calls agent-factory
+as the user (`_afCall asUser: true`), and persists per-(workspace, org) state in
+`global.deploys`. The agent's **org = the user's active studio org**, **owner = the user**.
+
+> Migration note: `data-analyst-cd76` still carries a legacy per-agent deploy SPA +
+> automations (the POC). New agents should NOT get one — they only need
+> `config.value.agent` + the label. Slimming the POC is a separate cleanup step.
 
 ## The manifest in detail (`agent.yml`)
 
@@ -104,9 +146,10 @@ max_turns: null               # max ReAct turns per task; agent_light default = 
 capabilities: []              # tools other than App+MCP (see Tool types below)
 appMcp: []                    # installed App+MCP connectors wired as mcp tools
 tests: []                     # inline test battery
-knownOrgs: []                 # orgs you work with, e.g. { slug, name } — for reselection
+# knownOrgs is legacy — the skill no longer selects orgs (deploy follows the active
+# playground session). Kept only as a human note of orgs you target; not used by the skill.
 deployedIds:                  # written by the skill, do not hand-edit
-  sandbox: { workspaceId: null, agentId: null, org: null }  # org = { slug, name }
+  sandbox: { workspaceId: null, agentId: null, org: null }  # org = { slug } (read back from deploy)
   prod:    { workspaceId: null, agentId: null, org: null }
 ```
 
@@ -134,21 +177,21 @@ Override **per agent** (don't touch the shared `agent_light` profile — it's a 
 `tool_call_budget` / `max_turns` in `agent.yml`. `_init-defaults` uses the agent's value
 when present.
 
-⚠️ **Deploy gotcha — these do NOT survive a normal `deploy`.** The `Agents` app's
-`createAgent`/`updateAgent` does **not** carry `token_budget`/`tool_call_budget`/`max_turns`
-(they're outside its schema), so an Agents-app deploy leaves them unset → the agent reverts
-to the profile default (e.g. 20000). **Set them with a direct PATCH** to the agent record,
-NOT through the `Agents` app:
+⚠️ **Deploy gotcha — budgets do NOT survive a `deploy`.** The `deploy` automation sends
+only `name/instructions/model/temperature/profile/tools`, so a deploy leaves
+`token_budget`/`tool_call_budget`/`max_turns` unset → the agent reverts to the profile
+default (e.g. 20000). **Set them with a direct PATCH** to the agent record, in the **same
+org/user context** as the deploy — i.e. as the user, against the agent that now lives in
+the active org:
 
 ```
-call_api { path: "/workspaces/slug:agent-factory/webhooks/v1/agents/<agentId>", method: "PATCH",
-           apiKey: "<iak_org_key>", withUserBearer: true,
-           body: { token_budget, tool_call_budget, max_turns } }
+PATCH {{apiUrl}}/workspaces/slug:agent-factory/webhooks/v1/agents/<agentId>
+       body: { token_budget, tool_call_budget, max_turns }
 ```
 
-So after every `deploy` that changes the agent, re-PATCH the budget (or PATCH it standalone).
-`deploy.yml` forwards these args too, but until the `Agents` app supports them the direct
-PATCH is authoritative. Read them back with `getAgent` (the record exposes the three fields).
+Run it the same way the deploy ran (from the playground / as the user — e.g. an
+`_afCall asUser:true` PATCH), since the agent is owner-scoped to that user in that org.
+Re-do this after EVERY deploy. Read them back via `GET .../v1/agents/<agentId>`.
 
 ## Tool types
 
@@ -184,8 +227,9 @@ call_api { path: "/orgs/<orgSlug>", pick: ["slug","name","settings"], environmen
   contains `embed` / `embedding` (e.g. `text-embedding-ada-002`,
   `amazon.titan-embed-image-v1`). Offer the completion models only.
 - If the org has a `default_completion_model`, surface it as the recommended default.
-- For a cross-org agent, the relevant org is the **deploy target** (`deployedIds.<env>.org`),
-  not the caller's org — they can differ, and their model lists differ too.
+- The relevant org is the **one the agent lives in** — `deployedIds.<env>.org` once
+  deployed, otherwise the org the user says they'll switch to before running `deploy`.
+  Ask the user for that org slug to fetch its `allowed_models`; don't enumerate orgs.
 - On `deploy`, the chosen `model` is sent in the create/update body; an out-of-list
   model surfaces as a model/quota error, not as a generic failure.
 
@@ -212,9 +256,9 @@ When the user asks to create a new agent:
    - `AGENT.md`: the prompt draft.
    - `agent.yml`: `name`, `slug`, `model`, `temperature`, `profile`, `visibility`,
      and any seed `capabilities`/`tests`.
-   - keep `imports/Agents.yml`, `automations/deploy.yml`, `automations/runTests.yml`
-     as-is.
-4. `validate_automation` on the two automations.
+   - keep `imports/Agents.yml`, `imports/Custom Code.yml`, and the automations
+     (`deploy.yml`, `_afCall.yml`, `runTests.yml`, `whoAmI.yml`) as-is.
+4. `validate_automation` on the automations folder.
 5. Offer to `deploy` (Operation 7). Do not deploy without the user's go-ahead.
 
 ## 2. Edit the prompt
@@ -227,8 +271,8 @@ When the user asks to create a new agent:
 The **capability catalog** is the source of truth for ready-to-add capabilities. It is
 the `capabilities` workspace (app `MCPServers`), exposed as a webhook API. Query it with
 `call_api` (the catalog is per-env; built-in entries are visible to everyone, org-custom
-entries are scoped to the caller's org — so query with the **target org's** context when
-it matters, i.e. `apiKey` + `withUserBearer` for a cross-org agent).
+entries are scoped to the caller's org — so to see an org's custom entries, query while
+that org is the active one).
 
 ### List / search the catalog
 
@@ -344,131 +388,89 @@ call-style bug above (use `Custom Code.run` with `function: evalTest`), NOT a re
 `Custom Code.run` and still get "not found" right after the first push, force a reload
 (`update_app_instance_config` on the `Custom Code` instance with its full config).
 
-## 6b. Choose / change the deployment organization
+## 6b. Deployment organization — no selection, it follows the playground session
 
-**The agent's org = the org of the caller that creates it** (fixed at create from the
-caller's session org; `body.orgSlug` is ignored — verified; `publish` keeps it). So
-"deploy to org X" = "authenticate the create call AS a member of org X, with org X
-active". And **whoever's identity creates the agent becomes its `owner_id`** — owners get
-full per-agent access; non-owners are gated by per-agent IAM.
+**The agent's org = the org active in the studio when `deploy` runs from the workspace
+playground** (`session.org.slug`), and the **user who clicks run becomes the owner**
+(`owner_id = user.id`). This is enforced by the agent-factory `_auth` middleware, which
+reads org and owner straight from the calling session — verified in
+`workspaces/agent-factory/automations/_auth.yml`. The `deploy` automation authenticates
+as that user (`_afCall asUser: true`, no api key), so the runtime auto-mints a user
+bearer carrying the session, and the agent lands wherever the studio is pointed.
 
-**THE VALIDATED MODEL (cross-org) — be a member, then create with Bearer + org key:**
-the user must be a **member of the target org** (any role that grants agent management;
-Owner is simplest). Then call `call_api` with **both** `apiKey: <iak_target_org_key>`
-**and** `withUserBearer: true`. The key selects the org context; the Bearer supplies the
-**human identity**, so the gateway passes the membership check and sets `owner_id` to the
-**user** (not the key). Verified end-to-end on cd76: create ✓, publish ✓, read ✓,
-PATCH ✓ — full lifecycle, because the human is the owner.
+**Consequences — the skill no longer chooses an org:**
+- There is **no org-list step**. Do not call `/me` to enumerate memberships, do not
+  present orgs, do not ask the user to pick one, do not handle org `iak_` keys for deploy.
+- "Deploy to org X" = the **user switches the studio to org X, then runs `deploy` from
+  the playground**. To move an agent to a different org, switch + re-run; the org is never
+  passed as an argument (a `body.orgSlug` would be ignored anyway).
+- The user must be a **member of the active org with rights to manage agents**, otherwise
+  the webhook returns 401/403. That's the user's responsibility (they switch to an org
+  they can manage); the skill just surfaces the error.
+- After a deploy, **read the landing org/owner from `deploy`'s output** (`org`, `owner` —
+  it reads the agent back) and record `deployedIds.<env>.org = { slug }`. No separate
+  `whoAmI` / `call_api` confirmation needed.
 
-```
-# create (owner = the user, org = target):
-call_api { path: "/workspaces/slug:agent-factory/webhooks/v1/agents", method: "POST",
-           apiKey: "<iak_org_key>", withUserBearer: true,
-           body: { name, instructions, model, temperature, profile, tools } }
-# then publish / read / patch / messages-send — all with apiKey + withUserBearer:
-call_api { path: ".../v1/agents/<id>/publish",          method: "POST",  apiKey, withUserBearer, body: { visibility } }
-call_api { path: ".../v1/agents/<id>",                  method: "PATCH", apiKey, withUserBearer, body: { model, instructions, tools } }
-call_api { path: ".../v1/agents/<id>/messages/send",    method: "POST",  apiKey, withUserBearer, body: { message: {...} } }
-```
+For **how to actually run the deploy** (where the user clicks, what payload to paste),
+see Operation 7.
 
-**Do NOT use key-only (`apiKey` without `withUserBearer`) to create a cross-org agent:**
-it works for create+publish but sets `owner_id` to the **key's** identity, producing a
-**key-owned orphan** that nobody (not even that key) can later read/update/delete —
-per-agent ops then 403 `missing permission 'agents:read'/'agents:write'` no matter the
-key's permissions or cache. (Hard-learned: an anonymous-key create on cd76 had to be
-abandoned + recreated with Bearer+key once the user joined the org.) Key-only is only
-acceptable for throwaway one-shots you never need to manage.
+## 7. Deploy the agent (via the AgentBuilderSync app)
 
-Dead ends (verified, don't retry): `body.orgSlug` (ignored); `PUT /user/active-org`
-(forbidden with `at:` token, "malformed" as cookie); `create_workspace` org targeting
-(no org field — a workspace is not org-bound, only the agent is); Bearer **without** being
-a member of the target org (`401 not a member of org`).
+The skill's job is to make the agent **discoverable and current**; the actual deploy is a
+click in the **AgentBuilderSync app** (the user picks the agent + model and deploys, as
+themselves, into their active org). The skill no longer runs `deploy` itself.
 
-Org key permissions: provision the `iak_` key with `agent-factory:*` plus the bare
-`agents:read` / `agents:write` / `agents:delete` (and the message/execute action). With
-the Bearer+member+owner model these mostly matter for non-owner/admin paths, but grant
-them for robustness. Permission/membership changes are cached (~60s api-key + a longer
-`agent_perms` TTL) — allow propagation before retrying.
+1. Confirm the **environment** (`sandbox` default; `prod` only on explicit request).
+2. **Compile the definition into `config.value.agent`** in the workspace's `index.yml`,
+   from `AGENT.md` (→ `instructions`) + `agent.yml`:
+   `{ name, model (default), temperature, profile, visibility, tools, instructions }`,
+   where `tools` = `capabilities[]` + one resolved `mcp` tool per `appMcp[]` entry
+   (resolve each `mcp` `server` via `get_app_instance_config` on the target env). This is
+   what the app reads — re-compile it on every prompt/model/capability change.
+3. Ensure the workspace carries the **label `agent-builder`** (so the app lists it) and
+   exists remotely:
+   - First time: `create_workspace` → capture id into `deployedIds.<env>.workspaceId`.
+   - `push_workspace` (`agents/<slug>/`) to upload `index.yml` (with the fresh
+     `config.value.agent`) + DSUL. `push_workspace` DOES update `config.value`, so the
+     app sees the new definition immediately. No `agentFactoryApiKey` secret needed.
+4. **Hand the user the app URL** for the env (see "AgentBuilderSync app" — e.g. sandbox
+   `https://sandbox.prisme.ai/apps/agent-builder-sync`). Tell them: *open it, switch the
+   studio to the target org if needed, pick `<agent name>` in the left list, choose the
+   model, and click Déployer.* The app deploys as them (active org, human owner), shows a
+   success popup with a link to the agent, and a "Voir l'agent" link if already deployed.
+5. The app tracks the deployed agent id per (workspace, org) in its own `global.deploys`
+   — you don't need to write `deployedIds` for the app to work. (You MAY still record the
+   resulting agent id in `agent.yml` `deployedIds.<env>` for git history if the user wants.)
+6. **Budget overrides** (`token_budget`/`tool_call_budget`/`max_turns`) are still NOT
+   carried by the app's deploy — if `agent.yml` sets them, PATCH them onto the agent after
+   it's deployed, in the same org/user context (see "Per-agent budget"):
+   `PATCH .../v1/agents/<agentId> { token_budget, tool_call_budget, max_turns }`.
 
-Listing orgs (to choose the target): **only propose orgs the user is actually a member
-of** — `call_api { path: "/me", pick: ["organizations","orgSlugs"] }` →
-`data.organizations` (each `{slug,name,roleSlug}`). Deploying requires membership (the
-Bearer+key model fails `401 not a member` otherwise), so do **not** offer the full
-platform list from `/orgs` (a superadmin sees every org there, almost none deployable).
-Use `/orgs` only if the user explicitly wants to join/target a new org first.
-
-Resolution flow (ask once, store, reuse):
-
-1. If `deployedIds.<env>.org` is set, use it without asking unless the user changes org.
-2. Otherwise list the user's **memberships** (`/me` → `organizations`), ask which, and
-   obtain that org's `iak_` key. Store `{slug,name}` in `knownOrgs`; the key is
-   user-provided (not committed). (If the user wants an org they're not in yet, they must
-   join it first — deploy needs membership.)
-3. Create + publish (+ later edits/tests) via `call_api` with `apiKey` **and**
-   `withUserBearer: true`. Read the agent back (same auth) to confirm `orgSlug` and that
-   `owner_id` is the user. Write `deployedIds.<env>.org` and `deployedIds.<env>.agentId`.
-   The answer text for tests is at `task.output.messages[<last>].parts[].text` (note the
-   **plural `messages` array**).
-
-## 7. Deploy the agent
-
-Deploy makes the remote agent match the local files on the chosen environment and
-publishes it so the user can test immediately. It also pushes the workspace so any
-installed App+MCP connectors run.
-
-1. Confirm the **environment** (`sandbox` default; `prod` only on explicit request)
-   and resolve the **organization** (Operation 6b) — ask only if
-   `deployedIds.<env>.org` is unset or the user wants to change it.
-2. Read `AGENT.md` (→ `instructions`) and `agent.yml`. Build the `tools` array:
-   `capabilities[]` + one resolved `mcp` tool per `appMcp[]` entry.
-3. Ensure the workspace exists remotely on that env:
-   - First time: `create_workspace` → capture the id into
-     `deployedIds.<env>.workspaceId`.
-   - Then `push_workspace` (workspace id + local folder `agents/<slug>/`) to upload the DSUL
-     (automations + imports). `push_workspace` does NOT push secret *values*, so
-     ensure the `agentFactoryApiKey` secret (the `iak_...` org key) is set on the env
-     out-of-band first — otherwise the Agents app calls fail with a `401` that
-     `deploy` surfaces as `error`.
-4. For each `appMcp` entry, resolve its `server` via `get_app_instance_config` on the
-   target env (`mcpEndpoint`).
-5. `execute_automation` `deploy` on the env workspace with:
-   `{ name, instructions, model, temperature, profile, tools, visibility,
-      agentId: <deployedIds.<env>.agentId or empty> }`.
-   - empty `agentId` → `createAgent`; otherwise → `updateAgent`. Then `publishAgent`.
-6. Capture the returned `id` and write it to `deployedIds.<env>.agentId` in
-   `agent.yml` (git-versioned). The Agents app surfaces failures as a structured
-   `{ error: true, status, message }` (e.g. `401` when `agentFactoryApiKey` is unset
-   or wrong), which `deploy.yml` returns as a non-empty `error` — if present, surface
-   it and stop (do not write an id). Then run `whoAmI` with the new id to confirm the
-   org and write `deployedIds.<env>.org = { slug, name }` (reconcile `knownOrgs`).
-6b. **If `agent.yml` sets any budget override** (`token_budget`/`tool_call_budget`/
-   `max_turns`), **PATCH them onto the agent now** — the Agents-app deploy did NOT persist
-   them (see "Per-agent budget"): `call_api PATCH /workspaces/slug:agent-factory/webhooks/
-   v1/agents/<agentId>` (apiKey + withUserBearer) `{ token_budget, tool_call_budget,
-   max_turns }`. Re-do this after EVERY deploy that re-runs createAgent/updateAgent.
-7. Give the user the SecureChat URL for that env to test the agent (the chat
-   frontend, e.g. `https://<env-host>/c/<agentId>`). Confirm the exact host with the
-   user rather than guessing, so you never hand over a dead link.
+> The underlying mechanism (deploy webhook → agent-factory as the user → org from
+> `session.org.slug`, owner from `user.id`) is unchanged from Operation 6b; the app just
+> wraps it with a dashboard. If AgentBuilderSync isn't deployed on the target env yet,
+> deploy it first (`agents/agent-builder-sync/` + `pages/agent-builder-sync/` via
+> `/workspace-page-implement`) and record its id + URL in the table above.
 
 ---
 
 # Reference
 
-## Agents app methods (used by the templates)
+## Agent Factory access (templates)
 
-- `Agents.createAgent`: `{ name, instructions, model, temperature, tools[], extra }`
-  → `{ id, name, ... }`.
-- `Agents.updateAgent`: `{ agent_id, updates: { name, instructions, model,
-  temperature, profile, tools } }`.
-- `Agents.getAgent`: `{ agent_id }` → full config incl. `tools[]`.
-- `Agents.addTool` / `Agents.removeTool`: single-tool CRUD (declarative `deploy`
-  rebuilds the whole list, so prefer editing the manifest + redeploy).
-- `Agents.publishAgent`: `{ agent_id, body: { visibility, category, tags } }`
-  → `{ status: "published" }`.
-- `Agents.sendMessage`: `{ agent_id, message: { message_id, role: user,
-  parts: [{ type: text, text }] } }` → `{ task: { id, contextId,
-  output: { message: { parts: [{ text }] } } } }`.
-- `Agents.deleteAgent`: `{ agent_id }`.
+`deploy` and `whoAmI` call the **agent-factory webhook directly** via the private
+`_afCall` helper (the published `Agents` app's argument schema is rejected by the prod
+runtime). `_afCall` has two auth modes:
+- `asUser: true` → no api key; the runtime auto-mints the **triggering user's** bearer,
+  so agent-factory resolves org from `session.org.slug` and owner from `user.id`. Used by
+  `deploy` (create `POST /v1/agents`, update `PATCH /v1/agents/<id>`, publish
+  `POST /v1/agents/<id>/publish`, read back `GET /v1/agents/<id>`).
+- default (org key) → `x-prismeai-api-key: {{secret.agentFactoryApiKey}}`, org fixed by
+  the key. Used by the legacy `whoAmI` only.
+
+The `Agents` app is still imported and used by **`runTests`** for `Agents.sendMessage`
+(`{ agent_id, message: { message_id, role: user, parts: [{ type: text, text }] } }` →
+`{ task: { output: { messages: [{ parts: [{ text }] }] } } }`).
 
 ## Multi-environment
 
@@ -478,8 +480,9 @@ each is distinct between sandbox and prod. The skill never reuses a sandbox id f
 ## Validation & guardrails
 
 - `validate_automation` is authoritative — trust it over existing patterns.
-- After scaffolding, guardrail-scan the new workspace for stray `fetch:` to Agent
-  Factory or hardcoded ids; there should be none (the templates use the `Agents` app).
+- After scaffolding, guardrail-scan the new workspace for hardcoded agent/workspace ids
+  and stray `fetch:` to Agent Factory: the only allowed agent-factory fetch is inside
+  `_afCall` (templated, via `{{global.apiUrl}}` — never a hardcoded host or id).
 - DSUL gotchas that bit these templates: string-literal compares use
   `'{{x}} = "value"'`; var-to-var compares use `'{{a}} = {{b}}'` (no quotes);
   `matches` is regex and condition-level only; `lower()` runs inside `{% %}`;

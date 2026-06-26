@@ -1,0 +1,66 @@
+slug: _afCall
+name: utils/Agent Factory API call
+description: >-
+  Private helper: authenticated fetch to the agent-factory webhook API. Two auth
+  modes selected by `asUser`:
+    - asUser: true  → authenticate AS THE TRIGGERING USER. No api-key header is
+        sent, so the runtime auto-mints a user bearer from the run's session. The
+        agent-factory _auth middleware then resolves the org from `session.org.slug`
+        (the caller's ACTIVE org) and the owner from `user.id`. This is what makes a
+        deploy launched from the workspace PLAYGROUND land in whatever organization
+        is currently active in the studio, owned by the human. Use for deploy.
+    - asUser: false (default) → x-prismeai-api-key from the workspace secret
+        (a fixed org `iak_...` key). Org is fixed by the key, owner is the key.
+        Use for non-interactive helpers (e.g. whoAmI) that must not depend on a
+        session. The direct webhook is used instead of the Agents app because the
+        published app's argument schema is rejected by the prod runtime.
+private: true
+arguments:
+  endpoint:
+    type: string
+  method:
+    type: string
+  body:
+    type: object
+  asUser:
+    type: boolean
+do:
+  - set:
+      name: _method
+      value: '{% {{method}} || "GET" %}'
+  - conditions:
+      '{{asUser}}':
+        - comment: >-
+            User-auth: omit x-prismeai-api-key so the runtime auto-authenticates the
+            fetch as the triggering user (active session org → agent org, user → owner).
+        - fetch:
+            url: '{{global.apiUrl}}/workspaces/slug:agent-factory/webhooks/{{endpoint}}'
+            method: '{{_method}}'
+            headers:
+              Content-Type: application/json
+            body: '{{body}}'
+            outputMode: detailed_response
+            output: response
+      default:
+        - fetch:
+            url: '{{global.apiUrl}}/workspaces/slug:agent-factory/webhooks/{{endpoint}}'
+            method: '{{_method}}'
+            headers:
+              x-prismeai-api-key: '{{secret.agentFactoryApiKey}}'
+              Content-Type: application/json
+            body: '{{body}}'
+            outputMode: detailed_response
+            output: response
+  - conditions:
+      '{% {{response.status}} >= 400 %}':
+        - set:
+            name: output
+            value:
+              error: true
+              status: '{{response.status}}'
+              message: '{{response.body}}'
+        - break: {}
+  - set:
+      name: output
+      value: '{{response.body}}'
+output: '{{output}}'

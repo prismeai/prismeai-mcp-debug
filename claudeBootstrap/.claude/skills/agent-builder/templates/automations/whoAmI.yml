@@ -1,14 +1,15 @@
 slug: whoAmI
-name: whoAmI
-description: Resolve the org the current Agent Factory API key deploys into, via getAgent.
+name: utils/Resolve org (legacy)
+description: Resolve the org the configured agent-factory key deploys into (getAgent.orgSlug).
 when:
   endpoint: true
 arguments:
   agentId:
     type: string
 do:
-  - Agents.getAgent:
-      agent_id: '{{agentId}}'
+  - _afCall:
+      endpoint: v1/agents/{{agentId}}
+      method: GET
       output: agent
 output:
   orgSlug: '{{agent.orgSlug}}'
