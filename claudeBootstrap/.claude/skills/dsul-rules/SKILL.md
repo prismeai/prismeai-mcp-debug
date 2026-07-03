@@ -152,14 +152,26 @@ Un `#` dans un `code: |` est passé comme source JS → `SyntaxError` qui **cass
 ### 8.4 — Pas de `fetch` global
 `fetch is not defined` au runtime. Utiliser `require('https')`/`require('http')` (Promise + `await`, suivre les 3xx, capper la taille, `Buffer.concat(chunks).toString('base64')`). Réf : connecteur gitlab `fetchAsBase64`. Préférer l'instruction DSUL `fetch` quand on n'a pas besoin de b64 en une étape.
 
-### 8.5 — Reload après push (cache positif)
-Une nouvelle fonction peut exister dans la config mais rester "not found" au runtime (la chaîne `onConfigUpdate` n'a pas rechargé). **Toujours vérifier qu'une nouvelle fonction est appelable** (`execute_automation` ou events `Custom Code.error` sur `fetchAPI`). Si manquante : `update_app_instance_config` avec la map **complète** (ce tool **remplace**, ne merge pas). Coder défensivement : garder contre la forme erreur avant d'écrire en aval :
+### 8.5 — Déployer une fonction CC via MCP : forcer un vrai diff de config
+Une fonction peut exister dans `config.functions` (visible via `get_app_instance_config`) mais rester "not found" au runtime. **Cause racine** : le runtime CC est un microservice externe (`apps-prismeai-functions`) dont le déploiement est déclenché par l'event **`workspaces.apps.configured`**. La sauvegarde UI l'émet sur un broker **live** (deploy immédiat) ; `push_workspace` (importDSUL) écrit bien les `functions` mais sur un broker **bufferisé** (`exports.ts:505-517`) — l'event est avalé dans `workspaces.imported` et seulement rejoué en interne, donc le service externe ne le reçoit **jamais** → `ObjectNotFoundError: /run/<fn>`.
+
+**Fix MCP pur (mime l'UI) : après `push_workspace`, forcer un VRAI diff de config** sur l'instance → `configureApp` re-tourne sur broker live → event → deploy. Procédure validée (`oddo-docx-translator`) :
+1. `push_workspace` (écrit `config.functions`, deploy bufferisé).
+2. `update_app_instance_config config: { lastDeploySync: "<ts>" }` — une **clé RACINE** (hors `functions`). Le merge la conserve, laisse `functions` **intact**, et le diff déclenche l'event. **Bumper ce timestamp à chaque redeploy.**
+3. Vérifier appelable (`execute_automation <wrapper>` → plus d'`ObjectNotFoundError` ; ou events `Custom Code.error`).
+
+⚠️ **Le diff doit être RÉEL** : `configureApp` court-circuite sans event si la config est identique (`areObjectsEqual`) → re-poster une config inchangée est un no-op (toujours "not found"). D'où le bump du timestamp.
+
+⚠️ **`update_app_instance_config` merge en surface** : les clés racine de `config.value` sont mergées, mais la valeur d'une clé fournie est **remplacée en entier** (pas de deep-merge). Donc : (a) envoyer `functions.<fn>.description` **écrase tout l'objet** `<fn>` (perd `code`/`parameters`) ; (b) envoyer une map `functions` **incomplète** perd les fonctions sœurs. Ne **jamais** patcher via `functions` pour déclencher le deploy — restaurer le code exact par `push_workspace` (depuis le fichier) et déclencher via la **clé racine**.
+
+Coder défensivement : garder contre la forme erreur avant d'écrire en aval :
 ```yaml
 - Custom Code.run: { function: X, parameters: ..., output: result }
 - conditions:
     '!{{result.error}}':
       - set: { name: downstreamField, value: '{{result}}' }
 ```
+> Fonction enregistrée (code propre, réutilisable, idéal **exemple client**) vs `Custom Code.run code:` inline (plus simple, zéro étape de deploy) : les deux marchent en MCP. Choisir enregistré quand la lisibilité/réutilisation prime.
 
 ### 8.6 — Cache négatif persistant
 Si une fonction CC est tombée en cache négatif (module load-failed à cause d'un `oneOf`/`type:array`), **rien** ne l'invalide : ni `update_app_instance_config`, ni `push_workspace`, ni renommage, ni `uninstall`+reinstall (vécu : bloquée 4 h). **Workaround** : créer une **2e instance Custom Code** avec un slug dédié (ex. `Bindings`) contenant les fonctions à débloquer ; appel via `Bindings.run`. Cache vierge → chargement immédiat.
@@ -197,6 +209,6 @@ Le CC tourne dans un service isolé, **sans auth ambiante**. Upload anonyme vers
 5. Aucun `break: { scope: all }`.
 6. Aucun `date()` sans argument → `{{run.date}}`.
 7. État durable par user → module `secrets`, pas `scope: user`.
-8. Custom Code : pas de `#`, pas de `type: array`/`oneOf`, fonctions vérifiées appelables après push.
+8. Custom Code : pas de `#`, pas de `type: array`/`oneOf`, fonctions vérifiées appelables après push (deploy = push + bump clé racine `lastDeploySync` pour forcer le vrai diff → §8.5).
 9. Collection : champs déclarés au schéma, `insertedId` pas `_id`.
 10. Lancer `validate_automation` — puis se rappeler qu'il ne couvre AUCUNE règle ci-dessus.
