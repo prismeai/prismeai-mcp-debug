@@ -1,6 +1,6 @@
 # Quick Start
 
-Install the Prisme.ai plugin from GitHub and start using the bundled MCP server, skills, agents, hooks, and DSUL linter in Claude Code or Codex.
+Install the Prisme.ai plugin from GitHub and start using the bundled MCP server, skills, agents, and DSUL linter in Claude Code or Codex.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ No clone, no `npm install`, no build: the plugin ships a prebuilt, self-containe
 | MCP Server (`prisme-ai-builder`) | Workspaces, automations, apps, events, files, AI Knowledge, DSUL linter |
 | Skills (`/prisme-ai:*`) | Connector scaffolding/testing/docs, A2UI, agent workspaces, `prisme-assistant`, `ticket-validator` — see `/prisme-ai:guide` |
 | Agents (Claude only) | `code-review`, `prisme-assistant` |
-| Hooks | `allow-workspace.sh` workspace allowlist template |
+| Hooks (Claude only) | `allow-workspace.sh` workspace allowlist template |
 
 ## Authenticate
 
@@ -52,7 +52,7 @@ You can instead ask the agent to register a pasted token via the `set_token` too
 
 ## After Install
 
-Run `/prisme-ai:guide` for the skills catalog and Prisme.ai context. In Claude Code, type `@` to see available `mcp__prisme-ai-builder__*` tools.
+Run `/prisme-ai:guide` for the skills catalog and Prisme.ai context. In Claude Code, type `@` to see available `mcp__prisme-ai-builder__*` tools. In Codex, plugin MCP tools may be loaded lazily; use a request that clearly needs Prisme.ai tools, or search for the Prisme.ai Builder tools.
 
 ## Verify Installation
 

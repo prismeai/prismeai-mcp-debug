@@ -8,10 +8,18 @@
   },
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Prisme.ai",
+    "longDescription": "Prisme.ai adds MCP tools, skills, documentation, and workflow guidance for building, testing, and operating Prisme.ai workspaces, automations, apps, and Agent Factory agents.",
+    "developerName": "Prisme.ai",
     "shortDescription": "Build and operate Prisme.ai workspaces, automations and agents.",
-    "category": "Developer Tools"
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://www.prisme.ai",
+    "privacyPolicyURL": "https://www.prisme.ai/privacy-policy",
+    "termsOfServiceURL": "https://www.prisme.ai/terms-of-use",
+    "defaultPrompt": [
+      "Inspect or update a Prisme.ai workspace"
+    ]
   }
 }

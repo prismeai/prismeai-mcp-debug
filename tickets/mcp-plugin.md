@@ -88,9 +88,9 @@ When a tool call targets an environment with no stored token, the server returns
 ### A. Plugin manifests + marketplace
 - [ ] `.claude-plugin/plugin.json` — `name` (`prisme-ai`), `description`, `version`, `author`, `homepage`, `repository`, `license`. **No** `apiKeyHelper`. (Plugin agents must NOT declare `hooks`/`mcpServers`/`permissionMode` — unsupported.)
 - [ ] `.claude-plugin/marketplace.json` — lists the plugin, `source: "./"` (repo root is the plugin). Installable via `/plugin marketplace add prismeai/prismeai-mcp` → `/plugin install prisme-ai@prismeai-mcp`.
-- [ ] `.codex-plugin/plugin.json` — Codex manifest with `name`, `version`, `description`, component pointers (`skills`, `mcpServers`, `hooks`).
+- [ ] `.codex-plugin/plugin.json` — Codex manifest with `name`, `version`, `description`, required `interface` metadata, and component pointers (`skills`, `mcpServers`). Do not declare `hooks`; Codex plugin validation rejects that field.
 - [ ] `.codex-plugin/marketplace.json` — Codex catalog. Installable via `codex plugin marketplace add prismeai/prismeai-mcp`.
-- [ ] Verify the two manifests coexist in one repo and resolve the same `.mcp.json`, `skills/`, `hooks/`.
+- [ ] Verify the two manifests coexist in one repo and resolve the same `.mcp.json` and `skills/`; Claude also consumes `hooks/`.
 
 ### B. MCP wiring
 - [ ] `.mcp.json` at repo root (shared by both manifests), as above.

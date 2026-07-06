@@ -1,6 +1,6 @@
 # Prisme.ai MCP Plugin
 
-Prisme.ai MCP is distributed as a plugin for **Claude Code** and **Codex**. The plugin bundles the MCP server, Prisme.ai skills, Claude agents, hooks, documentation, and the DSUL linter in one repository.
+Prisme.ai MCP is distributed as a plugin for **Claude Code** and **Codex**. The plugin bundles the MCP server, Prisme.ai skills, Claude agents and hooks, documentation, and the DSUL linter in one repository.
 
 Legacy direct MCP registration, `setup.sh`, local `build/index.js` registration, Playwright token capture, and manual `.claude` copying are retired. Install and use the plugin only.
 
@@ -156,7 +156,7 @@ npm run build:bundle
 | `plugin/build/index.js` | Self-contained MCP server bundle |
 | `plugin/skills/` | Bundled Prisme.ai skills |
 | `plugin/agents/` | Claude Code agents |
-| `plugin/hooks/` | Hook configuration and scripts |
+| `plugin/hooks/` | Claude hook configuration and scripts |
 | `plugin/llmDoc/` | Prisme.ai documentation exposed to tools |
 
 ## Reference Docs
